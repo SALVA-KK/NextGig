@@ -49,9 +49,12 @@ INSTALLED_APPS = [
     "corsheaders",
 
     "apps.accounts",
-
-
 ]
+
+# Custom User Model definition
+# Points Django authentication framework to our CustomUser model in the accounts app
+AUTH_USER_MODEL = "accounts.CustomUser"
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
