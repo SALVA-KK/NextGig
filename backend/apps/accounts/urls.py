@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import StudentRegistrationView, VerifyEmailView
+from .views import LoginView, StudentRegistrationView, VerifyEmailView
 
 app_name = "accounts"
 
@@ -14,5 +14,10 @@ urlpatterns = [
         "verify-email/",
         VerifyEmailView.as_view(),
         name="verify-email",
+    ),
+    path(
+        "login/",
+        LoginView.as_view(),
+        name="login",
     ),
 ]

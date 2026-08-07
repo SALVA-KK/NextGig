@@ -1,16 +1,19 @@
 import logging
 
+from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
-from .serializers import StudentRegistrationSerializer
+from .serializers import LoginSerializer, StudentRegistrationSerializer
 from .utils import send_verification_email
 
 logger = logging.getLogger(__name__)
@@ -105,4 +108,45 @@ class VerifyEmailView(APIView):
         return Response(
             {"error": "Invalid or expired verification link."},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class LoginView(APIView):
+    """
+    API endpoint that allows users to authenticate with email and password,
+    returning JWT access and refresh tokens upon successful verification.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=LoginSerializer,
+        responses={200: None},
+        summary="Login user",
+        description="Authenticate a verified user using email and password and return JWT access and refresh tokens.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates login payload, retrieves authenticated user, updates last_login, and returns JWT tokens.
+        """
+        serializer = LoginSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data["user"]
+        update_last_login(None, user)
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
+                "message": "Login successful.",
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role": user.role,
+                },
+            },
+            status=status.HTTP_200_OK,
         )

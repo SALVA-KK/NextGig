@@ -1,3 +1,4 @@
+from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
@@ -103,3 +104,46 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             **validated_data,
         )
         return user
+
+
+class LoginSerializer(serializers.Serializer):
+    """
+    Serializer for user authentication requests.
+    Validates credentials, account status, and email verification.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Registered email address.",
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"},
+        help_text="Account password.",
+    )
+
+    def validate(self, attrs):
+        """
+        Validates login credentials, authenticates the user, and enforces account status rules.
+        """
+        email = attrs.get("email", "").strip().lower()
+        attrs["email"] = email
+        password = attrs.get("password")
+
+        request = self.context.get("request")
+        user = authenticate(request=request, email=email, password=password)
+
+        if not user:
+            raise serializers.ValidationError("Invalid email or password.")
+
+        if not user.is_active:
+            raise serializers.ValidationError("This account has been disabled.")
+
+        if not user.is_verified:
+            raise serializers.ValidationError(
+                "Please verify your email address before logging in."
+            )
+
+        attrs["user"] = user
+        return attrs

@@ -19,10 +19,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
-print("BASE_DIR:", BASE_DIR)
-print("ENV EXISTS:", (BASE_DIR / ".env").exists())
-print("EMAIL_HOST:", os.getenv("EMAIL_HOST"))
-print("EMAIL_USER:", os.getenv("EMAIL_HOST_USER"))
 
 
 
