@@ -2,6 +2,8 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
 
@@ -146,4 +148,29 @@ class LoginSerializer(serializers.Serializer):
             )
 
         attrs["user"] = user
+        return attrs
+
+
+class LogoutSerializer(serializers.Serializer):
+    """
+    Serializer for validating refresh tokens for logout/blacklisting requests.
+    """
+
+    refresh = serializers.CharField(
+        required=True,
+        help_text="Refresh token to be blacklisted.",
+    )
+
+    def validate(self, attrs):
+        """
+        Validates that the refresh token is valid and unexpired.
+        Stores the RefreshToken instance in validated_data for the view to blacklist.
+        """
+        refresh_token_str = attrs.get("refresh")
+        try:
+            attrs["token"] = RefreshToken(refresh_token_str)
+        except TokenError:
+            raise serializers.ValidationError(
+                {"refresh": "Invalid or expired refresh token."}
+            )
         return attrs

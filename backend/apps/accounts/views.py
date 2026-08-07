@@ -7,13 +7,17 @@ from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
-from .serializers import LoginSerializer, StudentRegistrationSerializer
+from .serializers import (
+    LoginSerializer,
+    LogoutSerializer,
+    StudentRegistrationSerializer,
+)
 from .utils import send_verification_email
 
 logger = logging.getLogger(__name__)
@@ -150,3 +154,33 @@ class LoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class LogoutView(APIView):
+    """
+    API endpoint to log out a user by blacklisting their refresh token.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=LogoutSerializer,
+        responses={200: None},
+        summary="Logout user",
+        description="Blacklist the provided refresh token to revoke the user session.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates refresh token payload and adds it to the token blacklist database.
+        """
+        serializer = LogoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token = serializer.validated_data["token"]
+        token.blacklist()
+
+        return Response(
+            {"message": "Successfully logged out."},
+            status=status.HTTP_200_OK,
+        )
+
