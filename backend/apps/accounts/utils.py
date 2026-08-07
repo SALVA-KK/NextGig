@@ -5,7 +5,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 
-def generate_verification_url(user):
+def _generate_verification_url(user):
     """
     Generates a secure, time-sensitive email verification link for a user
     using Django's built-in default_token_generator and base64-encoded user PK.
@@ -14,11 +14,7 @@ def generate_verification_url(user):
     token = default_token_generator.make_token(user)
 
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
-#    verification_url = f"{frontend_url}/verify-email?uid={uidb64}&token={token}"
-    verification_url = (
-    f"http://127.0.0.1:8000/api/accounts/verify-email/"
-    f"?uid={uidb64}&token={token}"
-)
+    verification_url = f"{frontend_url}/verify-email?uid={uidb64}&token={token}"
     return verification_url
 
 
@@ -26,7 +22,7 @@ def send_verification_email(user):
     """
     Sends an email verification link to the user's registered email address.
     """
-    verification_url = generate_verification_url(user)
+    verification_url = _generate_verification_url(user)
 
     subject = "Verify your email address for NextGig"
     message = (
@@ -34,6 +30,46 @@ def send_verification_email(user):
         f"Thank you for registering on NextGig! Please verify your email address by clicking the link below:\n\n"
         f"{verification_url}\n\n"
         f"If you did not create an account on NextGig, please ignore this email.\n\n"
+        f"Best regards,\nThe NextGig Team"
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@nextgig.com")
+    recipient_list = [user.email]
+
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=from_email,
+        recipient_list=recipient_list,
+        fail_silently=False,
+    )
+
+
+def _generate_password_reset_url(user):
+    """
+    Generates a secure, time-sensitive password reset link for a user
+    using Django's built-in default_token_generator and base64-encoded user PK.
+    """
+    uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    reset_url = f"{frontend_url}/reset-password?uid={uidb64}&token={token}"
+    return reset_url
+
+
+def send_password_reset_email(user):
+    """
+    Sends a password reset link to the specified user's registered email address.
+    """
+    reset_url = _generate_password_reset_url(user)
+
+    subject = "Reset your NextGig password"
+    message = (
+        f"Hi {user.full_name},\n\n"
+        f"We received a request to reset the password for your NextGig account.\n\n"
+        f"You can reset your password by clicking the link below:\n\n"
+        f"{reset_url}\n\n"
+        f"If you did not request a password reset, please ignore this email and your password will remain unchanged.\n\n"
         f"Best regards,\nThe NextGig Team"
     )
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@nextgig.com")

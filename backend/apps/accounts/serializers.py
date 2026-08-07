@@ -174,3 +174,112 @@ class LogoutSerializer(serializers.Serializer):
                 {"refresh": "Invalid or expired refresh token."}
             )
         return attrs
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """
+    Serializer for authenticated user password change requests.
+    Validates that the new password and confirmation match and conform to security rules.
+    """
+
+    old_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"},
+        help_text="Current account password.",
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"},
+        help_text="New password conforming to security rules.",
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"},
+        help_text="Confirmation of the new password.",
+    )
+
+    def validate(self, attrs):
+        """
+        Cross-field validation ensuring new_password matches confirm_password
+        and passes Django password strength validators.
+        """
+        new_password = attrs.get("new_password")
+        confirm_password = attrs.get("confirm_password")
+
+        if new_password != confirm_password:
+            raise serializers.ValidationError(
+                {"confirm_password": "New password and confirmation do not match."}
+            )
+
+        # Pass request user to validate_password if context is available
+        request = self.context.get("request")
+        user = request.user if request and hasattr(request, "user") else None
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"new_password": list(error.messages)})
+
+        return attrs
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    """
+    Serializer for password reset requests via email.
+    Normalizes input email format without revealing user existence.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text="Registered email address for password reset instructions.",
+    )
+
+    def validate_email(self, value):
+        """
+        Normalizes the email address by stripping whitespace and converting to lowercase.
+        """
+        return value.strip().lower()
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    """
+    Serializer for completing a password reset request.
+    Validates that the new password and confirmation match and conform to password security policies.
+    """
+
+    new_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"},
+        help_text="New password conforming to security rules.",
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"},
+        help_text="Confirmation of the new password.",
+    )
+
+    def validate(self, attrs):
+        """
+        Cross-field validation ensuring new_password matches confirm_password
+        and passes Django password strength validators using self.context.get('user').
+        """
+        new_password = attrs.get("new_password")
+        confirm_password = attrs.get("confirm_password")
+
+        if new_password != confirm_password:
+            raise serializers.ValidationError(
+                {"confirm_password": "New password and confirmation do not match."}
+            )
+
+        user = self.context.get("user")
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"new_password": list(error.messages)})
+
+        return attrs

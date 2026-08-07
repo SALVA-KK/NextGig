@@ -5,7 +5,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -14,11 +14,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
 from .serializers import (
+    ChangePasswordSerializer,
+    ForgotPasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
+    ResetPasswordSerializer,
     StudentRegistrationSerializer,
 )
-from .utils import send_verification_email
+from .utils import send_password_reset_email, send_verification_email
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,27 @@ class VerifyEmailView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="uid",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Base64 encoded user ID",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Email verification token",
+                required=True,
+            ),
+        ],
+        responses={200: None},
+        summary="Verify email",
+        description="Verify user email address using uid and token query parameters.",
+    )
     def get(self, request, *args, **kwargs):
         """
         Validates uid and token query params to verify email address.
@@ -184,3 +208,162 @@ class LogoutView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+class ChangePasswordView(APIView):
+    """
+    API endpoint that allows an authenticated user to change their password securely.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=ChangePasswordSerializer,
+        responses={200: None},
+        summary="Change password",
+        description="Allows an authenticated user to change their password.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Verifies current password, ensures non-reuse of current password, and updates password.
+        """
+        serializer = ChangePasswordSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        old_password = serializer.validated_data["old_password"]
+        new_password = serializer.validated_data["new_password"]
+
+        user = request.user
+
+        if not user.check_password(old_password):
+            return Response(
+                {"old_password": "Current password is incorrect."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if user.check_password(new_password):
+            return Response(
+                {
+                    "new_password": "New password cannot be the same as the current password."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(new_password)
+        user.save()
+
+        return Response(
+            {"message": "Password changed successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ForgotPasswordView(APIView):
+    """
+    API endpoint that allows unauthenticated users to request a password reset email.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=ForgotPasswordSerializer,
+        responses={200: None},
+        summary="Forgot password",
+        description="Request a password reset email.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates email format and dispatches password reset instructions if account exists.
+        """
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+
+        try:
+            user = CustomUser.objects.get(email__iexact=email)
+            send_password_reset_email(user)
+        except CustomUser.DoesNotExist:
+            pass
+
+        return Response(
+            {
+                "message": "If an account with that email exists, a password reset link has been sent."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ResetPasswordView(APIView):
+    """
+    API endpoint to reset a user's password using a valid uid and password reset token.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=ResetPasswordSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="uid",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Base64 encoded user ID",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Password reset token",
+                required=True,
+            ),
+        ],
+        responses={200: None},
+        summary="Reset password",
+        description="Reset a user's password using a valid uid and password reset token.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates reset parameters (uid, token), executes password validation, and sets new password.
+        """
+        uidb64 = request.query_params.get("uid")
+        token = request.query_params.get("token")
+
+        if not uidb64 or not token:
+            return Response(
+                {"detail": "Invalid password reset link."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = CustomUser.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, CustomUser.DoesNotExist):
+            return Response(
+                {"detail": "Invalid password reset link."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not default_token_generator.check_token(user, token):
+            return Response(
+                {"detail": "Password reset link is invalid or has expired."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ResetPasswordSerializer(
+            data=request.data,
+            context={"user": user},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        new_password = serializer.validated_data["new_password"]
+        user.set_password(new_password)
+        user.save()
+
+        return Response(
+            {"message": "Password reset successful."},
+            status=status.HTTP_200_OK,
+        )
