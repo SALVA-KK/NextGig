@@ -97,3 +97,58 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.email} ({self.role})"
+
+
+class PhoneOTP(models.Model):
+    """
+    Model for storing hashed temporary phone OTPs for authentication, registration,
+    password reset, and MFA workflows.
+    """
+
+    class OTPPurpose(models.TextChoices):
+        LOGIN = "login", _("Login")
+        REGISTRATION = "registration", _("Registration")
+        PASSWORD_RESET = "password_reset", _("Password Reset")
+        MFA = "mfa", _("Multi-Factor Authentication")
+
+    phone_number = models.CharField(
+        _("phone number"),
+        max_length=20,
+        db_index=True,
+        help_text=_("Target phone number for OTP verification."),
+    )
+
+    otp_hash = models.CharField(
+        _("OTP hash"),
+        max_length=128,
+        help_text=_("Hashed OTP value for secure verification."),
+    )
+
+    purpose = models.CharField(
+        _("purpose"),
+        max_length=20,
+        choices=OTPPurpose.choices,
+        help_text=_("Intended workflow purpose for this OTP."),
+    )
+
+    expires_at = models.DateTimeField(
+        _("expires at"),
+        help_text=_("Expiration timestamp for the OTP."),
+    )
+
+    is_used = models.BooleanField(
+        _("is used"),
+        default=False,
+        help_text=_("Flag indicating whether the OTP has already been verified/used."),
+    )
+
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+
+    class Meta:
+        db_table = "phone_otps"
+        verbose_name = _("phone OTP")
+        verbose_name_plural = _("phone OTPs")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.phone_number} ({self.purpose})"

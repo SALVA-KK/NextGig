@@ -5,7 +5,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import CustomUser
+from .models import CustomUser, PhoneOTP
 
 
 class StudentRegistrationSerializer(serializers.ModelSerializer):
@@ -283,3 +283,61 @@ class ResetPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError({"new_password": list(error.messages)})
 
         return attrs
+
+
+class RequestOTPSerializer(serializers.Serializer):
+    """
+    Serializer for requesting a phone OTP verification code.
+    Validates phone number format normalization and workflow purpose choices.
+    """
+
+    phone_number = serializers.CharField(
+        max_length=20,
+        required=True,
+        help_text="Target phone number for OTP delivery.",
+    )
+
+    purpose = serializers.ChoiceField(
+        choices=PhoneOTP.OTPPurpose.choices,
+        required=True,
+        help_text="Intended workflow purpose for the OTP.",
+    )
+
+    def validate_phone_number(self, value):
+        """
+        Normalizes phone number by stripping leading and trailing whitespace.
+        """
+        return value.strip()
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    """
+    Serializer for verifying a received 6-digit phone OTP code.
+    Validates phone number format, OTP string length, and workflow purpose choice.
+    """
+
+    phone_number = serializers.CharField(
+        max_length=20,
+        required=True,
+        help_text="Phone number receiving the OTP.",
+    )
+
+    otp = serializers.CharField(
+        max_length=6,
+        min_length=6,
+        required=True,
+        write_only=True,
+        help_text="Six-digit OTP code.",
+    )
+
+    purpose = serializers.ChoiceField(
+        choices=PhoneOTP.OTPPurpose.choices,
+        required=True,
+        help_text="Workflow purpose for the OTP.",
+    )
+
+    def validate_phone_number(self, value):
+        """
+        Normalizes phone number by stripping leading and trailing whitespace.
+        """
+        return value.strip()

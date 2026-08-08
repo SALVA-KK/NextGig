@@ -1,8 +1,15 @@
+import secrets
+from datetime import timedelta
+
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+
+from .models import PhoneOTP
 
 
 def _generate_verification_url(user):
@@ -82,3 +89,93 @@ def send_password_reset_email(user):
         recipient_list=recipient_list,
         fail_silently=False,
     )
+
+
+def _generate_otp():
+    """
+    Generates a cryptographically secure random 6-digit numeric OTP string.
+    Uses Python's secrets module for cryptographically strong random numbers.
+    """
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def _hash_otp(otp):
+    """
+    Hashes a plain OTP string using Django's built-in password hasher.
+    Never returns or logs plain text OTP values.
+    """
+    return make_password(otp)
+
+
+def create_phone_otp(phone_number, purpose):
+    """
+    Generates a secure 6-digit OTP, stores its hashed representation in the database
+    with a 5-minute expiration timestamp, and returns ONLY the plain OTP string for delivery.
+    """
+    otp = _generate_otp()
+    otp_hash = _hash_otp(otp)
+    expires_at = timezone.now() + timedelta(minutes=5)
+
+    PhoneOTP.objects.create(
+        phone_number=phone_number,
+        otp_hash=otp_hash,
+        purpose=purpose,
+        expires_at=expires_at,
+    )
+
+    return otp
+
+
+def send_phone_otp(phone_number, otp, purpose):
+    """
+    Development-only SMS delivery mock function.
+    Prints formatted OTP delivery details to the Django server output console.
+
+    In a production environment, this function can be swapped with a real SMS gateway driver
+    (e.g., Twilio, MSG91, Fast2SMS) without requiring any changes to calling views or business logic.
+    """
+    print("========================================")
+    print("PHONE OTP")
+    print("")
+    print("Phone:")
+    print(f"{phone_number}")
+    print("")
+    print("Purpose:")
+    print(f"{purpose}")
+    print("")
+    print("OTP:")
+    print(f"{otp}")
+    print("")
+    print("Valid For:")
+    print("5 minutes")
+    print("")
+    print("========================================")
+
+
+def verify_phone_otp(phone_number, otp, purpose):
+    """
+    Verifies a submitted plain-text OTP against the latest active PhoneOTP record for a given phone number and purpose.
+    Returns True if valid, unexpired, unused, and matched; otherwise returns False.
+    Marks valid OTPs as used immediately to prevent replay attacks.
+    """
+    otp_record = (
+        PhoneOTP.objects.filter(phone_number=phone_number, purpose=purpose)
+        .order_by("-created_at")
+        .first()
+    )
+
+    if not otp_record:
+        return False
+
+    if otp_record.is_used:
+        return False
+
+    if timezone.now() > otp_record.expires_at:
+        return False
+
+    if not check_password(otp, otp_record.otp_hash):
+        return False
+
+    otp_record.is_used = True
+    otp_record.save(update_fields=["is_used"])
+    return True

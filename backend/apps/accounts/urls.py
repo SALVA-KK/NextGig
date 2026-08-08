@@ -6,9 +6,13 @@ from .views import (
     ForgotPasswordView,
     LoginView,
     LogoutView,
+    PhoneLoginRequestOTPView,
+    PhoneLoginVerifyOTPView,
+    RequestOTPView,
     ResetPasswordView,
     StudentRegistrationView,
     VerifyEmailView,
+    VerifyOTPView,
 )
 
 app_name = "accounts"
@@ -53,5 +57,25 @@ urlpatterns = [
         "reset-password/",
         ResetPasswordView.as_view(),
         name="reset-password",
+    ),
+    path(
+        "request-otp/",
+        RequestOTPView.as_view(),
+        name="request-otp",
+    ),
+    path(
+        "verify-otp/",
+        VerifyOTPView.as_view(),
+        name="verify-otp",
+    ),
+    path(
+        "phone-login/request-otp/",
+        PhoneLoginRequestOTPView.as_view(),
+        name="phone-login-request-otp",
+    ),
+    path(
+        "phone-login/verify-otp/",
+        PhoneLoginVerifyOTPView.as_view(),
+        name="phone-login-verify-otp",
     ),
 ]

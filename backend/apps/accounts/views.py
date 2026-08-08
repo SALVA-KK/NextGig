@@ -12,16 +12,24 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import CustomUser
+from .models import CustomUser, PhoneOTP
 from .serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
+    RequestOTPSerializer,
     ResetPasswordSerializer,
     StudentRegistrationSerializer,
+    VerifyOTPSerializer,
 )
-from .utils import send_password_reset_email, send_verification_email
+from .utils import (
+    create_phone_otp,
+    send_password_reset_email,
+    send_phone_otp,
+    send_verification_email,
+    verify_phone_otp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -367,3 +375,185 @@ class ResetPasswordView(APIView):
             {"message": "Password reset successful."},
             status=status.HTTP_200_OK,
         )
+
+
+class RequestOTPView(APIView):
+    """
+    API endpoint that allows unauthenticated users to request a phone OTP code.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=RequestOTPSerializer,
+        responses={200: None},
+        summary="Request phone OTP",
+        description="Generates and dispatches a 6-digit phone OTP code for authentication/verification workflows.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates payload, creates database OTP hash record, and dispatches SMS delivery.
+        """
+        serializer = RequestOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        phone_number = serializer.validated_data["phone_number"]
+        purpose = serializer.validated_data["purpose"]
+
+        otp = create_phone_otp(phone_number, purpose)
+        send_phone_otp(phone_number, otp, purpose)
+
+        return Response(
+            {
+                "message": "If the phone number is eligible, an OTP has been sent."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class VerifyOTPView(APIView):
+    """
+    API endpoint to verify a submitted phone OTP code.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=VerifyOTPSerializer,
+        responses={200: None},
+        summary="Verify phone OTP",
+        description="Verifies a previously issued phone OTP.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates payload structure and evaluates OTP validity against the database record.
+        """
+        serializer = VerifyOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        phone_number = serializer.validated_data["phone_number"]
+        otp = serializer.validated_data["otp"]
+        purpose = serializer.validated_data["purpose"]
+
+        is_valid = verify_phone_otp(
+            phone_number=phone_number,
+            otp=otp,
+            purpose=purpose,
+        )
+
+        if not is_valid:
+            return Response(
+                {"detail": "Invalid or expired OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {"message": "OTP verified successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PhoneLoginRequestOTPView(APIView):
+    """
+    API endpoint that sends a login OTP code to a registered phone number.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=RequestOTPSerializer,
+        responses={200: None},
+        summary="Request phone login OTP",
+        description="Sends a login OTP to a registered phone number.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Validates target phone number, verifies account existence and verification status, and dispatches login OTP.
+        """
+        payload = {
+            "phone_number": request.data.get("phone_number"),
+            "purpose": PhoneOTP.OTPPurpose.LOGIN,
+        }
+        serializer = RequestOTPSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+
+        phone_number = serializer.validated_data["phone_number"]
+        purpose = PhoneOTP.OTPPurpose.LOGIN
+
+        if CustomUser.objects.filter(phone_number=phone_number, is_verified=True).exists():
+            otp = create_phone_otp(phone_number, purpose)
+            send_phone_otp(phone_number, otp, purpose)
+
+        return Response(
+            {
+                "message": "If the phone number is registered, an OTP has been sent."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PhoneLoginVerifyOTPView(APIView):
+    """
+    API endpoint that authenticates a verified user using phone OTP.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=VerifyOTPSerializer,
+        responses={200: None},
+        summary="Phone login",
+        description="Authenticates a verified user using phone OTP.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Verifies phone login OTP, retrieves verified user, updates last_login, and returns JWT tokens.
+        """
+        payload = {
+            "phone_number": request.data.get("phone_number"),
+            "otp": request.data.get("otp"),
+            "purpose": PhoneOTP.OTPPurpose.LOGIN,
+        }
+        serializer = VerifyOTPSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+
+        phone_number = serializer.validated_data["phone_number"]
+        otp = serializer.validated_data["otp"]
+
+        is_valid = verify_phone_otp(
+            phone_number=phone_number,
+            otp=otp,
+            purpose=PhoneOTP.OTPPurpose.LOGIN,
+        )
+
+        if not is_valid:
+            return Response(
+                {"detail": "Invalid or expired OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = CustomUser.objects.get(phone_number=phone_number, is_verified=True)
+        except CustomUser.DoesNotExist:
+            return Response(
+                {"detail": "Invalid or expired OTP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.is_active:
+            return Response(
+                {"detail": "This account has been disabled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        update_last_login(None, user)
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            },
+            status=status.HTTP_200_OK,
+        )
+
