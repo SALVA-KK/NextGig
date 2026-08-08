@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
+import { authService } from '../../services/authService';
 
 export default function Login() {
   // Method state: 'email' | 'phone'
@@ -9,6 +10,7 @@ export default function Login() {
   // Email form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
   // Phone form state
   const [phone, setPhone] = useState('');
@@ -24,16 +26,29 @@ export default function Login() {
     setMessage(null);
   };
 
-  // Simulated Email Login Handler
-  const handleEmailSubmit = (e) => {
+  // Real Email Login Handler via Django REST API
+  const handleEmailSubmit = async (e) => {
     e.preventDefault();
-    setMessage({
-      type: 'info',
-      text: `[Demo] Logging in with email: ${email}`,
-    });
+    setMessage(null);
+    setLoading(true);
+
+    try {
+      const data = await authService.loginEmail(email, password);
+      setMessage({
+        type: 'success',
+        text: data.message || 'Login successful! Welcome back.',
+      });
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Invalid email or password.',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Simulated Send OTP Handler
+  // Simulated Send OTP Handler (Phone OTP API integration pending)
   const handleSendOtp = (e) => {
     e.preventDefault();
     if (!phone.trim()) return;
@@ -44,7 +59,7 @@ export default function Login() {
     });
   };
 
-  // Simulated Verify OTP & Login Handler
+  // Simulated Verify OTP & Login Handler (Phone OTP API integration pending)
   const handleVerifyOtp = (e) => {
     e.preventDefault();
     setMessage({
@@ -87,7 +102,7 @@ export default function Login() {
         </button>
       </div>
 
-      {/* Local Feedback Banner */}
+      {/* Feedback Banner */}
       {message && (
         <div className={`alert-banner alert-${message.type}`}>
           {message.text}
@@ -106,7 +121,8 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="form-input"
+              disabled={loading}
+              className={`form-input ${loading ? 'disabled' : ''}`}
             />
           </div>
 
@@ -124,12 +140,13 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="form-input"
+              disabled={loading}
+              className={`form-input ${loading ? 'disabled' : ''}`}
             />
           </div>
 
-          <button type="submit" className="btn-primary">
-            Sign In with Email
+          <button type="submit" className="btn-primary" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In with Email'}
           </button>
         </form>
       )}
