@@ -341,3 +341,40 @@ class VerifyOTPSerializer(serializers.Serializer):
         Normalizes phone number by stripping leading and trailing whitespace.
         """
         return value.strip()
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer for retrieving and updating user profile information.
+    Excludes sensitive authentication flags (is_verified, is_active, tokens, passwords).
+    """
+
+    class Meta:
+        model = CustomUser
+        fields = (
+            "email",
+            "full_name",
+            "phone_number",
+            "role",
+            "date_joined",
+        )
+        read_only_fields = ("email", "role", "date_joined")
+
+    def validate_phone_number(self, value):
+        """
+        Ensure phone number is unique across users when updated.
+        """
+        if value:
+            cleaned_phone = value.strip()
+            user_pk = self.instance.pk if self.instance else None
+            if (
+                CustomUser.objects.filter(phone_number=cleaned_phone)
+                .exclude(pk=user_pk)
+                .exists()
+            ):
+                raise serializers.ValidationError(
+                    "A user with this phone number already exists."
+                )
+            return cleaned_phone
+        return value
+

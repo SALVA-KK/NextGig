@@ -9,6 +9,32 @@ const api = axios.create({
   },
 });
 
+// List of public endpoints that do NOT require an Authorization header
+const PUBLIC_ENDPOINTS = [
+  '/accounts/login/',
+  '/accounts/register/',
+  '/accounts/verify-email/',
+  '/accounts/forgot-password/',
+  '/accounts/reset-password/',
+  '/accounts/request-otp/',
+  '/accounts/verify-otp/',
+  '/accounts/phone-login/request-otp/',
+  '/accounts/phone-login/verify-otp/',
+];
+
+// Automatically attach JWT Access Token to outbound API requests for protected endpoints
+api.interceptors.request.use((config) => {
+  const isPublic = PUBLIC_ENDPOINTS.some((endpoint) => config.url?.includes(endpoint));
+
+  if (!isPublic) {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
 export const authService = {
   /**
    * Authenticate user with Email + Password against Django REST backend (/api/accounts/login/)
@@ -169,6 +195,70 @@ export const authService = {
         errorMsg = data.error;
       } else if (data.message) {
         errorMsg = data.message;
+      }
+
+      throw new Error(errorMsg);
+    }
+  },
+
+  /**
+   * Fetch authenticated user's profile (/api/accounts/profile/)
+   */
+  getProfile: async () => {
+    try {
+      const response = await api.get('/accounts/profile/');
+      const data = response.data;
+      if (data) {
+        localStorage.setItem('user', JSON.stringify(data));
+      }
+      return data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = 'Failed to fetch profile details.';
+
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (data.detail) {
+        errorMsg = data.detail;
+      } else if (data.error) {
+        errorMsg = data.error;
+      }
+
+      throw new Error(errorMsg);
+    }
+  },
+
+  /**
+   * Update authenticated user's profile (/api/accounts/profile/)
+   */
+  updateProfile: async (profileData) => {
+    try {
+      const response = await api.patch('/accounts/profile/', profileData);
+      const data = response.data;
+      if (data) {
+        localStorage.setItem('user', JSON.stringify(data));
+      }
+      return data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = 'Failed to update profile.';
+
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (data.detail) {
+        errorMsg = data.detail;
+      } else if (data.full_name) {
+        errorMsg = Array.isArray(data.full_name) ? data.full_name[0] : data.full_name;
+      } else if (data.phone_number) {
+        errorMsg = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
+      } else if (data.error) {
+        errorMsg = data.error;
       }
 
       throw new Error(errorMsg);

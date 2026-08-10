@@ -11,6 +11,7 @@ from .views import (
     RequestOTPView,
     ResetPasswordView,
     StudentRegistrationView,
+    UserProfileView,
     VerifyEmailView,
     VerifyOTPView,
 )
@@ -77,5 +78,10 @@ urlpatterns = [
         "phone-login/verify-otp/",
         PhoneLoginVerifyOTPView.as_view(),
         name="phone-login-verify-otp",
+    ),
+    path(
+        "profile/",
+        UserProfileView.as_view(),
+        name="user-profile",
     ),
 ]

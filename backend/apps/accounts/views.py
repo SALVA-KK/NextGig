@@ -21,6 +21,7 @@ from .serializers import (
     RequestOTPSerializer,
     ResetPasswordSerializer,
     StudentRegistrationSerializer,
+    UserProfileSerializer,
     VerifyOTPSerializer,
 )
 from .utils import (
@@ -556,4 +557,21 @@ class PhoneLoginVerifyOTPView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    """
+    API endpoint to retrieve and update the authenticated user's profile information.
+    Requires JWT authentication.
+    """
+
+    serializer_class = UserProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        """
+        Returns the current authenticated user instance.
+        """
+        return self.request.user
+
 

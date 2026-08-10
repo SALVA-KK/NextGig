@@ -15,15 +15,29 @@ export default function Dashboard() {
   return (
     <div className="dashboard-container">
       <div className="dashboard-card">
-        {/* NextGig Branding Header & Logout Button */}
+        {/* NextGig Branding Header, Profile & Logout Buttons */}
         <div className="dashboard-header">
           <div className="auth-brand" style={{ marginBottom: 0 }}>
             <div className="brand-logo">N</div>
             <span className="brand-name">NextGig</span>
           </div>
-          <button onClick={handleLogout} className="btn-logout" id="logout-btn">
-            Logout
-          </button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              onClick={() => navigate('/profile')}
+              className="btn-logout"
+              style={{
+                background: 'rgba(124, 58, 237, 0.15)',
+                borderColor: 'rgba(124, 58, 237, 0.3)',
+                color: '#a78bfa',
+              }}
+              id="profile-btn"
+            >
+              Profile
+            </button>
+            <button onClick={handleLogout} className="btn-logout" id="logout-btn">
+              Logout
+            </button>
+          </div>
         </div>
 
         {/* Welcome Message */}
