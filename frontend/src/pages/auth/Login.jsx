@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
 
 export default function Login() {
+  const navigate = useNavigate();
+
   // Method state: 'email' | 'phone'
   const [method, setMethod] = useState('email');
 
@@ -16,6 +18,7 @@ export default function Login() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [phoneLoading, setPhoneLoading] = useState(false);
 
   // Status message state for UI feedback
   const [message, setMessage] = useState(null);
@@ -38,6 +41,7 @@ export default function Login() {
         type: 'success',
         text: data.message || 'Login successful! Welcome back.',
       });
+      navigate('/dashboard');
     } catch (err) {
       setMessage({
         type: 'error',
@@ -48,27 +52,58 @@ export default function Login() {
     }
   };
 
-  // Simulated Send OTP Handler (Phone OTP API integration pending)
-  const handleSendOtp = (e) => {
+  // Real Phone Login Request OTP Handler via Django REST API
+  const handleSendOtp = async (e) => {
     e.preventDefault();
     if (!phone.trim()) return;
-    setOtpSent(true);
-    setMessage({
-      type: 'success',
-      text: `[Demo] OTP sent to ${phone}. Enter 6-digit code below.`,
-    });
+
+    setMessage(null);
+    setPhoneLoading(true);
+
+    try {
+      const data = await authService.requestPhoneLoginOTP(phone.trim());
+      setOtpSent(true);
+      setMessage({
+        type: 'success',
+        text: data.message || 'If the phone number is registered, an OTP has been sent.',
+      });
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Failed to send OTP. Please check the phone number.',
+      });
+    } finally {
+      setPhoneLoading(false);
+    }
   };
 
-  // Simulated Verify OTP & Login Handler (Phone OTP API integration pending)
-  const handleVerifyOtp = (e) => {
+  // Real Phone Login Verify OTP Handler via Django REST API
+  const handleVerifyOtp = async (e) => {
     e.preventDefault();
-    setMessage({
-      type: 'info',
-      text: `[Demo] Verifying OTP ${otp} for ${phone}...`,
-    });
+    if (!otp.trim()) return;
+
+    setMessage(null);
+    setPhoneLoading(true);
+
+    try {
+      await authService.verifyPhoneLoginOTP(phone.trim(), otp.trim());
+      setMessage({
+        type: 'success',
+        text: 'Phone login successful! Welcome back.',
+      });
+      navigate('/dashboard');
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Invalid or expired OTP.',
+      });
+    } finally {
+      setPhoneLoading(false);
+    }
   };
 
-  // Reset OTP state to re-enter phone
+
+  // Reset OTP state to re-enter phone number
   const handleResetPhone = () => {
     setOtpSent(false);
     setOtp('');
@@ -166,12 +201,13 @@ export default function Login() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   required
-                  className="form-input"
+                  disabled={phoneLoading}
+                  className={`form-input ${phoneLoading ? 'disabled' : ''}`}
                 />
               </div>
 
-              <button type="submit" className="btn-primary">
-                Send OTP
+              <button type="submit" className="btn-primary" disabled={phoneLoading}>
+                {phoneLoading ? 'Sending OTP...' : 'Send OTP'}
               </button>
             </form>
           ) : (
@@ -183,6 +219,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={handleResetPhone}
+                    disabled={phoneLoading}
                     className="link-secondary"
                   >
                     Change Phone
@@ -207,18 +244,20 @@ export default function Login() {
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
                   required
-                  className="form-input otp-input"
+                  disabled={phoneLoading}
+                  className={`form-input otp-input ${phoneLoading ? 'disabled' : ''}`}
                 />
               </div>
 
-              <button type="submit" className="btn-primary">
-                Verify OTP & Sign In
+              <button type="submit" className="btn-primary" disabled={phoneLoading}>
+                {phoneLoading ? 'Verifying...' : 'Verify OTP & Sign In'}
               </button>
 
               <div className="resend-wrapper">
                 <button
                   type="button"
                   onClick={handleSendOtp}
+                  disabled={phoneLoading}
                   className="btn-text"
                 >
                   Resend OTP

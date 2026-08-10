@@ -1,12 +1,24 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/auth/Login';
+import VerifyEmail from './pages/auth/VerifyEmail';
+import Dashboard from './pages/dashboard/Dashboard';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function App() {
   return (
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
         {/* Placeholder routes to prevent 404 links during demo */}
         <Route
           path="/register"
@@ -40,3 +52,4 @@ function App() {
 }
 
 export default App;
+
