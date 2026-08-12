@@ -183,6 +183,10 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+# MSG91 SMS Gateway Configuration
+MSG91_AUTHKEY = os.getenv("MSG91_AUTHKEY")
+MSG91_WIDGET_ID = os.getenv("MSG91_WIDGET_ID", "SecureOTPWidgetDKTD")
+
 
 # Simple JWT Configuration
 # Configures token lifetimes, rotation, and blacklisting behavior

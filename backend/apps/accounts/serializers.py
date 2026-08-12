@@ -1,3 +1,5 @@
+import secrets
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -5,7 +7,8 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import CustomUser, PhoneOTP
+from .models import CustomUser, PhoneOTP, Invitation
+from .utils import get_phone_lookup_variants, normalize_phone_number
 
 
 class StudentRegistrationSerializer(serializers.ModelSerializer):
@@ -26,6 +29,12 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         style={"input_type": "password"},
         help_text="Must match the password field.",
     )
+    invite_token = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Optional invitation token to link registration with inviter.",
+    )
 
     class Meta:
         model = CustomUser
@@ -36,6 +45,7 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             "phone_number",
             "password",
             "confirm_password",
+            "invite_token",
         )
         read_only_fields = ("id",)
 
@@ -50,15 +60,20 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
 
     def validate_phone_number(self, value):
         """
-        Ensure phone number is unique if provided.
+        Ensure phone number is unique if provided and normalize to E.164.
         """
         if value:
-            cleaned_phone = value.strip()
-            if CustomUser.objects.filter(phone_number=cleaned_phone).exists():
+            try:
+                normalized_phone = normalize_phone_number(value)
+            except ValueError as error:
+                raise serializers.ValidationError(str(error))
+
+            variants = get_phone_lookup_variants(normalized_phone)
+            if CustomUser.objects.filter(phone_number__in=variants).exists():
                 raise serializers.ValidationError(
                     "A user with this phone number already exists."
                 )
-            return cleaned_phone
+            return normalized_phone
         return value
 
     def validate(self, attrs):
@@ -88,9 +103,13 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """
         Create and return a new Student user using CustomUserManager.create_user().
+        Links user to Invitation if a valid invite_token is provided.
         """
         # Remove confirm_password field as it is only needed for validation
         validated_data.pop("confirm_password")
+
+        # Extract optional invite token
+        invite_token = validated_data.pop("invite_token", None)
 
         # Automatically assign the STUDENT role internally
         validated_data["role"] = CustomUser.Role.STUDENT
@@ -105,6 +124,17 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             password=password,
             **validated_data,
         )
+
+        if invite_token:
+            invitation = Invitation.objects.filter(
+                token=invite_token,
+                is_used=False,
+            ).first()
+            if invitation:
+                invitation.invited_user = user
+                invitation.is_used = True
+                invitation.save()
+
         return user
 
 
@@ -305,9 +335,12 @@ class RequestOTPSerializer(serializers.Serializer):
 
     def validate_phone_number(self, value):
         """
-        Normalizes phone number by stripping leading and trailing whitespace.
+        Normalizes phone number to standard E.164 format.
         """
-        return value.strip()
+        try:
+            return normalize_phone_number(value)
+        except ValueError as error:
+            raise serializers.ValidationError(str(error))
 
 
 class VerifyOTPSerializer(serializers.Serializer):
@@ -338,9 +371,12 @@ class VerifyOTPSerializer(serializers.Serializer):
 
     def validate_phone_number(self, value):
         """
-        Normalizes phone number by stripping leading and trailing whitespace.
+        Normalizes phone number to standard E.164 format.
         """
-        return value.strip()
+        try:
+            return normalize_phone_number(value)
+        except ValueError as error:
+            raise serializers.ValidationError(str(error))
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -362,19 +398,56 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     def validate_phone_number(self, value):
         """
-        Ensure phone number is unique across users when updated.
+        Ensure phone number is unique across users when updated and normalize to E.164.
         """
         if value:
-            cleaned_phone = value.strip()
+            try:
+                normalized_phone = normalize_phone_number(value)
+            except ValueError as error:
+                raise serializers.ValidationError(str(error))
+
             user_pk = self.instance.pk if self.instance else None
+            variants = get_phone_lookup_variants(normalized_phone)
             if (
-                CustomUser.objects.filter(phone_number=cleaned_phone)
+                CustomUser.objects.filter(phone_number__in=variants)
                 .exclude(pk=user_pk)
                 .exists()
             ):
                 raise serializers.ValidationError(
                     "A user with this phone number already exists."
                 )
-            return cleaned_phone
+            return normalized_phone
         return value
+
+
+class InvitationResponseSerializer(serializers.Serializer):
+    """
+    Serializer for invitation creation response payload.
+    """
+
+    message = serializers.CharField(help_text="Success status message.")
+    invite_url = serializers.CharField(help_text="Full frontend URL for sharing the invitation.")
+    token = serializers.CharField(help_text="Unique invitation token.")
+    created_at = serializers.DateTimeField(help_text="Timestamp when invitation was generated.")
+
+
+class InviterPublicSerializer(serializers.Serializer):
+    """
+    Public representation of the inviter user.
+    Hides email, phone, and private attributes.
+    """
+
+    id = serializers.IntegerField(help_text="Inviter user ID.")
+    full_name = serializers.CharField(help_text="Inviter full name for safe display.")
+
+
+class PublicInvitationSerializer(serializers.Serializer):
+    """
+    Serializer for public invitation details query.
+    """
+
+    valid = serializers.BooleanField(help_text="Flag indicating whether invitation token is valid and active.")
+    inviter = InviterPublicSerializer(required=False, help_text="Public inviter information if valid.")
+    detail = serializers.CharField(required=False, help_text="Error message if token is invalid or expired.")
+
 

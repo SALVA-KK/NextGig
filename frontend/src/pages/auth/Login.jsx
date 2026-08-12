@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
@@ -19,14 +19,34 @@ export default function Login() {
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [phoneLoading, setPhoneLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
   // Status message state for UI feedback
   const [message, setMessage] = useState(null);
+
+  // 15-second resend cooldown timer with automatic cleanup
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   // Handle tab switching
   const handleMethodChange = (newMethod) => {
     setMethod(newMethod);
     setMessage(null);
+  };
+
+  // Helper to redirect based on user role
+  const redirectBasedOnRole = (userData) => {
+    const role = userData?.role || authService.getUserRole();
+    if (role === 'admin') {
+      navigate('/admin');
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   // Real Email Login Handler via Django REST API
@@ -37,11 +57,16 @@ export default function Login() {
 
     try {
       const data = await authService.loginEmail(email, password);
+      if (data.mfa_required && data.mfa_token) {
+        sessionStorage.setItem('admin_mfa_token', data.mfa_token);
+        navigate('/admin/mfa-verify');
+        return;
+      }
       setMessage({
         type: 'success',
         text: data.message || 'Login successful! Welcome back.',
       });
-      navigate('/dashboard');
+      redirectBasedOnRole(data.user);
     } catch (err) {
       setMessage({
         type: 'error',
@@ -54,8 +79,9 @@ export default function Login() {
 
   // Real Phone Login Request OTP Handler via Django REST API
   const handleSendOtp = async (e) => {
-    e.preventDefault();
-    if (!phone.trim()) return;
+    if (e && e.preventDefault) e.preventDefault();
+    // Synchronous request guard: prevent duplicate calls while loading or during cooldown
+    if (phoneLoading || cooldown > 0 || !phone.trim()) return;
 
     setMessage(null);
     setPhoneLoading(true);
@@ -63,6 +89,7 @@ export default function Login() {
     try {
       const data = await authService.requestPhoneLoginOTP(phone.trim());
       setOtpSent(true);
+      setCooldown(15);
       setMessage({
         type: 'success',
         text: data.message || 'If the phone number is registered, an OTP has been sent.',
@@ -86,12 +113,12 @@ export default function Login() {
     setPhoneLoading(true);
 
     try {
-      await authService.verifyPhoneLoginOTP(phone.trim(), otp.trim());
+      const data = await authService.verifyPhoneLoginOTP(phone.trim(), otp.trim());
       setMessage({
         type: 'success',
         text: 'Phone login successful! Welcome back.',
       });
-      navigate('/dashboard');
+      redirectBasedOnRole(data?.user);
     } catch (err) {
       setMessage({
         type: 'error',
@@ -102,11 +129,11 @@ export default function Login() {
     }
   };
 
-
   // Reset OTP state to re-enter phone number
   const handleResetPhone = () => {
     setOtpSent(false);
     setOtp('');
+    setCooldown(0);
     setMessage(null);
   };
 
@@ -206,8 +233,8 @@ export default function Login() {
                 />
               </div>
 
-              <button type="submit" className="btn-primary" disabled={phoneLoading}>
-                {phoneLoading ? 'Sending OTP...' : 'Send OTP'}
+              <button type="submit" className="btn-primary" disabled={phoneLoading || cooldown > 0}>
+                {phoneLoading ? 'Sending OTP...' : cooldown > 0 ? `Resend in ${cooldown}s` : 'Send OTP'}
               </button>
             </form>
           ) : (
@@ -257,10 +284,10 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={handleSendOtp}
-                  disabled={phoneLoading}
+                  disabled={phoneLoading || cooldown > 0}
                   className="btn-text"
                 >
-                  Resend OTP
+                  {cooldown > 0 ? `Resend OTP (${cooldown}s)` : 'Resend OTP'}
                 </button>
               </div>
             </form>

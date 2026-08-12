@@ -1,9 +1,16 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
+    AdminMFAConfirmView,
+    AdminMFADisableView,
+    AdminMFASetupView,
+    AdminMFAStatusView,
+    AdminMFAVerifyView,
     ChangePasswordView,
+    DecoratedTokenRefreshView,
     ForgotPasswordView,
+    InvitationCreateView,
+    InvitationDetailView,
     LoginView,
     LogoutView,
     PhoneLoginRequestOTPView,
@@ -36,7 +43,7 @@ urlpatterns = [
     ),
     path(
         "token/refresh/",
-        TokenRefreshView.as_view(),
+        DecoratedTokenRefreshView.as_view(),
         name="token-refresh",
     ),
     path(
@@ -83,5 +90,40 @@ urlpatterns = [
         "profile/",
         UserProfileView.as_view(),
         name="user-profile",
+    ),
+    path(
+        "admin/mfa/verify/",
+        AdminMFAVerifyView.as_view(),
+        name="admin-mfa-verify",
+    ),
+    path(
+        "admin/mfa/setup/",
+        AdminMFASetupView.as_view(),
+        name="admin-mfa-setup",
+    ),
+    path(
+        "admin/mfa/confirm/",
+        AdminMFAConfirmView.as_view(),
+        name="admin-mfa-confirm",
+    ),
+    path(
+        "admin/mfa/disable/",
+        AdminMFADisableView.as_view(),
+        name="admin-mfa-disable",
+    ),
+    path(
+        "admin/mfa/status/",
+        AdminMFAStatusView.as_view(),
+        name="admin-mfa-status",
+    ),
+    path(
+        "invitations/",
+        InvitationCreateView.as_view(),
+        name="invitation-create",
+    ),
+    path(
+        "invitations/<str:token>/",
+        InvitationDetailView.as_view(),
+        name="invitation-detail",
     ),
 ]

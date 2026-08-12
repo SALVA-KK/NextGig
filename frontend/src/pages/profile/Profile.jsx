@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import DashboardLayout from '../../components/dashboard/DashboardLayout';
+import ProfileHeader from '../../components/profile/ProfileHeader';
+import ProfileSection from '../../components/profile/ProfileSection';
+import ProfileField from '../../components/profile/ProfileField';
+import ChangePasswordCard from '../../components/profile/ChangePasswordCard';
 import { authService } from '../../services/authService';
 
 export default function Profile() {
-  const navigate = useNavigate();
-
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Form State
+  // Profile Edit Form State
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
 
-  // Alert State
-  const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: string }
+  // Profile Alert Feedback State
+  const [message, setMessage] = useState(null);
 
   // Fetch Profile on Mount
   useEffect(() => {
@@ -94,171 +96,131 @@ export default function Profile() {
   };
 
   return (
-    <div className="dashboard-container">
-      <div className="dashboard-card">
-        {/* Header & Back Navigation */}
-        <div className="dashboard-header">
-          <div className="auth-brand" style={{ marginBottom: 0 }}>
-            <div className="brand-logo">N</div>
-            <span className="brand-name">NextGig</span>
-          </div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="btn-logout"
-            style={{
-              background: 'rgba(124, 58, 237, 0.15)',
-              borderColor: 'rgba(124, 58, 237, 0.3)',
-              color: '#a78bfa',
-            }}
-          >
-            ← Back to Dashboard
-          </button>
-        </div>
-
-        {/* Page Title */}
-        <div className="dashboard-welcome" style={{ paddingBottom: 0 }}>
-          <h1 className="dashboard-title">User Profile</h1>
-          <p className="dashboard-subtitle">
-            Manage your personal account details and contact information.
-          </p>
-        </div>
-
-        {/* Alert Feedback Banner */}
-        {message && (
-          <div className={`alert-banner alert-${message.type}`}>
-            {message.text}
-          </div>
-        )}
-
+    <DashboardLayout title="Profile">
+      <div className="profile-container">
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)' }}>
-            Loading profile information...
+          <div className="profile-loading-state">
+            <p>Loading profile information...</p>
           </div>
         ) : profile ? (
-          <div className="user-profile-card">
-            <div className="user-profile-header">
-              <span className="badge-authenticated" style={{ textTransform: 'uppercase' }}>
-                {profile.role || 'USER'}
-              </span>
-            </div>
+          <>
+            {/* Header Card */}
+            <ProfileHeader
+              profile={profile}
+              isEditing={isEditing}
+              onEditClick={handleEditClick}
+              onCancelEdit={handleCancel}
+              saving={saving}
+            />
 
-            {!isEditing ? (
-              /* View Mode */
-              <>
-                <div className="user-profile-details">
-                  <div className="user-detail-row">
-                    <span className="detail-label">Full Name:</span>
-                    <span className="detail-value">{profile.full_name || 'Not provided'}</span>
-                  </div>
-
-                  <div className="user-detail-row">
-                    <span className="detail-label">Email Address:</span>
-                    <span className="detail-value">{profile.email}</span>
-                  </div>
-
-                  <div className="user-detail-row">
-                    <span className="detail-label">Phone Number:</span>
-                    <span className="detail-value">{profile.phone_number || 'Not provided'}</span>
-                  </div>
-
-                  <div className="user-detail-row">
-                    <span className="detail-label">Role:</span>
-                    <span className="detail-value" style={{ textTransform: 'capitalize' }}>
-                      {profile.role}
-                    </span>
-                  </div>
-
-                  <div className="user-detail-row">
-                    <span className="detail-label">Member Since:</span>
-                    <span className="detail-value">{formatDate(profile.date_joined)}</span>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '20px' }}>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={handleEditClick}
-                  >
-                    Edit Profile
-                  </button>
-                </div>
-              </>
-            ) : (
-              /* Edit Mode */
-              <form onSubmit={handleSave} className="auth-form" style={{ marginTop: '12px' }}>
-                <div className="form-group">
-                  <label htmlFor="full_name">Full Name</label>
-                  <input
-                    id="full_name"
-                    type="text"
-                    className="form-input"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                    placeholder="Enter your full name"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="phone_number">Phone Number</label>
-                  <input
-                    id="phone_number"
-                    type="text"
-                    className="form-input"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    placeholder="Enter your phone number (e.g. 6238414785)"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Email Address (Read-only)</label>
-                  <input
-                    type="email"
-                    className="form-input disabled"
-                    value={profile.email}
-                    disabled
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Role (Read-only)</label>
-                  <input
-                    type="text"
-                    className="form-input disabled"
-                    value={profile.role}
-                    disabled
-                  />
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                  <button
-                    type="submit"
-                    className="btn-primary"
-                    disabled={saving}
-                  >
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-logout"
-                    onClick={handleCancel}
-                    disabled={saving}
-                    style={{ flex: 1 }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+            {/* Alert Feedback Banner */}
+            {message && (
+              <div className={`alert-banner alert-${message.type}`} style={{ marginBottom: '20px' }}>
+                {message.text}
+              </div>
             )}
-          </div>
+
+            {/* Profile Content Container */}
+            <form onSubmit={handleSave}>
+              <div className="profile-sections-wrapper">
+                {/* SECTION 1: Personal Information */}
+                <ProfileSection
+                  title="Personal Information"
+                  description="Your primary identity details on the NextGig workspace."
+                >
+                  <div className="profile-fields-grid">
+                    <ProfileField
+                      id="full_name"
+                      label="Full Name"
+                      value={isEditing ? fullName : profile.full_name}
+                      isEditing={isEditing}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required
+                      placeholder="Enter full name"
+                    />
+
+                    <ProfileField
+                      id="role"
+                      label="Account Role"
+                      value={profile.role}
+                      readOnly
+                      isEditing={isEditing}
+                    />
+                  </div>
+                </ProfileSection>
+
+                {/* SECTION 2: Contact Information */}
+                <ProfileSection
+                  title="Contact Information"
+                  description="Contact channels used for platform notifications and identity verification."
+                >
+                  <div className="profile-fields-grid">
+                    <ProfileField
+                      id="email"
+                      label="Email Address"
+                      value={profile.email}
+                      readOnly
+                      isEditing={isEditing}
+                    />
+
+                    <ProfileField
+                      id="phone_number"
+                      label="Phone Number"
+                      value={isEditing ? phoneNumber : profile.phone_number}
+                      isEditing={isEditing}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="+91 98765 43210"
+                    />
+                  </div>
+                </ProfileSection>
+
+                {/* Edit Mode Save & Cancel Floating Action Bar */}
+                {isEditing && (
+                  <div className="profile-edit-actions-bar">
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={saving}
+                      style={{ width: 'auto', padding: '10px 24px' }}
+                    >
+                      {saving ? 'Saving Changes...' : 'Save Changes'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-profile-cancel"
+                      onClick={handleCancel}
+                      disabled={saving}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
+                {/* SECTION 3: Account Security */}
+                <ProfileSection
+                  title="Account & Security"
+                  description="Security settings, account age, and password management."
+                >
+                  <div className="profile-fields-grid" style={{ marginBottom: '20px' }}>
+                    <ProfileField
+                      id="member_since"
+                      label="Member Since"
+                      value={formatDate(profile.date_joined)}
+                      readOnly
+                    />
+                  </div>
+
+                  <ChangePasswordCard />
+                </ProfileSection>
+              </div>
+            </form>
+          </>
         ) : (
-          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-            Failed to load profile details.
+          <div className="profile-error-state">
+            <p>Failed to load profile details.</p>
           </div>
         )}
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

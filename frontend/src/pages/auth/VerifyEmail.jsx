@@ -12,7 +12,7 @@ export default function VerifyEmail() {
 
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState(null); // { type: 'success' | 'error', text: string }
-  
+
   // Use a ref to prevent double API invocation in React 18 StrictMode
   const verificationAttempted = useRef(false);
 

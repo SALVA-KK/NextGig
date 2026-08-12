@@ -20,11 +20,14 @@ const PUBLIC_ENDPOINTS = [
   '/accounts/verify-otp/',
   '/accounts/phone-login/request-otp/',
   '/accounts/phone-login/verify-otp/',
+  '/accounts/admin/mfa/verify/',
 ];
 
 // Automatically attach JWT Access Token to outbound API requests for protected endpoints
 api.interceptors.request.use((config) => {
-  const isPublic = PUBLIC_ENDPOINTS.some((endpoint) => config.url?.includes(endpoint));
+  const isPublic =
+    PUBLIC_ENDPOINTS.some((endpoint) => config.url?.includes(endpoint)) ||
+    (config.url?.includes('/accounts/invitations/') && config.method?.toLowerCase() === 'get');
 
   if (!isPublic) {
     const token = localStorage.getItem('access_token');
@@ -266,6 +269,113 @@ export const authService = {
   },
 
   /**
+   * Request password reset link via email (/api/accounts/forgot-password/)
+   */
+  forgotPassword: async (email) => {
+    try {
+      const response = await api.post('/accounts/forgot-password/', { email });
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = 'Failed to request password reset email.';
+
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (data.email) {
+        errorMsg = Array.isArray(data.email) ? data.email[0] : data.email;
+      } else if (data.detail) {
+        errorMsg = data.detail;
+      } else if (data.error) {
+        errorMsg = data.error;
+      }
+
+      throw new Error(errorMsg);
+    }
+  },
+
+  /**
+   * Reset password using uid and token query params (/api/accounts/reset-password/)
+   */
+  resetPassword: async (uid, token, newPassword, confirmPassword) => {
+    try {
+      const response = await api.post(
+        '/accounts/reset-password/',
+        {
+          new_password: newPassword,
+          confirm_password: confirmPassword,
+        },
+        {
+          params: { uid, token },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = 'Failed to reset password.';
+
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (data.detail) {
+        errorMsg = data.detail;
+      } else if (data.new_password) {
+        errorMsg = Array.isArray(data.new_password) ? data.new_password[0] : data.new_password;
+      } else if (data.confirm_password) {
+        errorMsg = Array.isArray(data.confirm_password)
+          ? data.confirm_password[0]
+          : data.confirm_password;
+      } else if (data.error) {
+        errorMsg = data.error;
+      }
+
+      throw new Error(errorMsg);
+    }
+  },
+
+  /**
+   * Change current password for authenticated user (/api/accounts/change-password/)
+   */
+  changePassword: async (oldPassword, newPassword, confirmPassword) => {
+    try {
+      const response = await api.post('/accounts/change-password/', {
+        old_password: oldPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      });
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = 'Failed to change password.';
+
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (data.detail) {
+        errorMsg = data.detail;
+      } else if (data.old_password) {
+        errorMsg = Array.isArray(data.old_password) ? data.old_password[0] : data.old_password;
+      } else if (data.new_password) {
+        errorMsg = Array.isArray(data.new_password) ? data.new_password[0] : data.new_password;
+      } else if (data.confirm_password) {
+        errorMsg = Array.isArray(data.confirm_password)
+          ? data.confirm_password[0]
+          : data.confirm_password;
+      } else if (data.error) {
+        errorMsg = data.error;
+      }
+
+      throw new Error(errorMsg);
+    }
+  },
+
+  /**
    * Remove stored authentication tokens and user data from localStorage
    */
   logout: () => {
@@ -293,5 +403,198 @@ export const authService = {
   isAuthenticated: () => {
     return !!localStorage.getItem('access_token');
   },
+
+  /**
+   * Retrieve current user's role string
+   */
+  getUserRole: () => {
+    const user = authService.getCurrentUser();
+    return user ? user.role : null;
+  },
+
+  /**
+   * Check if current user is an Admin
+   */
+  isAdmin: () => {
+    return authService.getUserRole() === 'admin';
+  },
+
+  /**
+   * Verify Admin MFA TOTP / Backup code during pre-auth state
+   */
+  verifyAdminMFA: async (mfaToken, otpCode) => {
+    try {
+      const response = await api.post('/accounts/admin/mfa/verify/', {
+        mfa_token: mfaToken,
+        otp_code: otpCode,
+      });
+
+      const data = response.data;
+      if (data.access && data.refresh) {
+        localStorage.setItem('access_token', data.access);
+        localStorage.setItem('refresh_token', data.refresh);
+        if (data.user) {
+          localStorage.setItem('user', JSON.stringify(data.user));
+        }
+      }
+      return data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      throw new Error(data.detail || data.error || 'Failed to verify MFA code.');
+    }
+  },
+
+  /**
+   * Initiate Admin MFA setup
+   */
+  setupAdminMFA: async () => {
+    try {
+      const response = await api.post('/accounts/admin/mfa/setup/');
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      throw new Error(data.detail || data.error || 'Failed to initiate MFA setup.');
+    }
+  },
+
+  /**
+   * Confirm and activate Admin MFA setup
+   */
+  confirmAdminMFA: async (otpCode) => {
+    try {
+      const response = await api.post('/accounts/admin/mfa/confirm/', {
+        otp_code: otpCode,
+      });
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      throw new Error(data.detail || data.error || 'Failed to confirm MFA setup.');
+    }
+  },
+
+  /**
+   * Disable Admin MFA
+   */
+  disableAdminMFA: async (password, otpCode) => {
+    try {
+      const response = await api.post('/accounts/admin/mfa/disable/', {
+        password: password,
+        otp_code: otpCode,
+      });
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      throw new Error(data.detail || data.error || 'Failed to disable MFA.');
+    }
+  },
+
+  /**
+   * Get Admin MFA status
+   */
+  getAdminMFAStatus: async () => {
+    try {
+      const response = await api.get('/accounts/admin/mfa/status/');
+      return response.data;
+    } catch (error) {
+      return { is_enabled: false };
+    }
+  },
+
+  /**
+   * Generate platform invitation link (/api/accounts/invitations/)
+   */
+  createInvitation: async () => {
+    try {
+      const response = await api.post('/accounts/invitations/');
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = data.detail || data.error || 'Failed to generate invitation link.';
+      throw new Error(errorMsg);
+    }
+  },
+
+  /**
+   * Retrieve public invitation details (/api/accounts/invitations/<token>/)
+   */
+  getInvitation: async (token) => {
+    try {
+      const response = await api.get(`/accounts/invitations/${token}/`);
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      return data || { valid: false, detail: 'Invalid or expired invitation link.' };
+    }
+  },
+
+  /**
+   * Register a new Student/User account against Django REST backend (/api/accounts/register/)
+   */
+  register: async ({ email, full_name, phone_number, password, confirm_password, invite_token }) => {
+    try {
+      const response = await api.post('/accounts/register/', {
+        email,
+        full_name,
+        phone_number: phone_number ? phone_number.trim() : undefined,
+        password,
+        confirm_password,
+        invite_token: invite_token || undefined,
+      });
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      const data = error.response.data;
+      let errorMsg = 'Registration failed. Please check the provided information.';
+
+      if (typeof data === 'string') {
+        errorMsg = data;
+      } else if (data.non_field_errors) {
+        errorMsg = Array.isArray(data.non_field_errors)
+          ? data.non_field_errors[0]
+          : data.non_field_errors;
+      } else if (data.detail) {
+        errorMsg = data.detail;
+      } else if (data.email) {
+        errorMsg = Array.isArray(data.email) ? data.email[0] : data.email;
+      } else if (data.full_name) {
+        errorMsg = Array.isArray(data.full_name) ? data.full_name[0] : data.full_name;
+      } else if (data.phone_number) {
+        errorMsg = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
+      } else if (data.password) {
+        errorMsg = Array.isArray(data.password) ? data.password[0] : data.password;
+      } else if (data.confirm_password) {
+        errorMsg = Array.isArray(data.confirm_password)
+          ? data.confirm_password[0]
+          : data.confirm_password;
+      } else if (data.error) {
+        errorMsg = data.error;
+      }
+
+      throw new Error(errorMsg);
+    }
+  },
 };
+
+export default authService;
+
 
