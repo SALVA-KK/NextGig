@@ -121,8 +121,8 @@ export default function Profile() {
             )}
 
             {/* Profile Content Container */}
-            <form onSubmit={handleSave}>
-              <div className="profile-sections-wrapper">
+            <div className="profile-sections-wrapper">
+              <form onSubmit={handleSave}>
                 {/* SECTION 1: Personal Information */}
                 <ProfileSection
                   title="Personal Information"
@@ -195,25 +195,25 @@ export default function Profile() {
                     </button>
                   </div>
                 )}
+              </form>
 
-                {/* SECTION 3: Account Security */}
-                <ProfileSection
-                  title="Account & Security"
-                  description="Security settings, account age, and password management."
-                >
-                  <div className="profile-fields-grid" style={{ marginBottom: '20px' }}>
-                    <ProfileField
-                      id="member_since"
-                      label="Member Since"
-                      value={formatDate(profile.date_joined)}
-                      readOnly
-                    />
-                  </div>
+              {/* SECTION 3: Account Security */}
+              <ProfileSection
+                title="Account & Security"
+                description="Security settings, account age, and password management."
+              >
+                <div className="profile-fields-grid" style={{ marginBottom: '20px' }}>
+                  <ProfileField
+                    id="member_since"
+                    label="Member Since"
+                    value={formatDate(profile.date_joined)}
+                    readOnly
+                  />
+                </div>
 
-                  <ChangePasswordCard />
-                </ProfileSection>
-              </div>
-            </form>
+                <ChangePasswordCard />
+              </ProfileSection>
+            </div>
           </>
         ) : (
           <div className="profile-error-state">

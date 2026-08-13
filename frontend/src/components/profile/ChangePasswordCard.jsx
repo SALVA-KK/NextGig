@@ -93,6 +93,7 @@ export default function ChangePasswordCard() {
               onChange={(e) => setOldPassword(e.target.value)}
               required
               disabled={saving}
+              autoComplete="current-password"
             />
           </div>
 
@@ -107,6 +108,7 @@ export default function ChangePasswordCard() {
               onChange={(e) => setNewPassword(e.target.value)}
               required
               disabled={saving}
+              autoComplete="new-password"
             />
           </div>
 
@@ -121,6 +123,7 @@ export default function ChangePasswordCard() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
               disabled={saving}
+              autoComplete="new-password"
             />
           </div>
 
