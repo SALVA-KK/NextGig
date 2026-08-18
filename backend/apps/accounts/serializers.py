@@ -433,6 +433,19 @@ class VerifyOTPSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(error))
 
 
+class GoogleLoginSerializer(serializers.Serializer):
+    """
+    Serializer for Google OAuth login / auto-registration requests.
+    Validates presence of client-side Google OAuth ID token.
+    """
+
+    id_token = serializers.CharField(
+        required=True,
+        write_only=True,
+        help_text="Google OAuth 2.0 ID Token obtained from client-side Google OAuth SDK.",
+    )
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
     """
     Serializer for retrieving and updating user profile information.

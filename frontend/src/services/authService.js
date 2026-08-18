@@ -183,6 +183,32 @@ export const authService = {
   },
 
   /**
+   * Authenticate / auto-register user via Google OAuth ID token (/api/accounts/google-login/)
+   */
+  loginGoogle: async (id_token) => {
+    try {
+      const response = await api.post('/accounts/google-login/', {
+        id_token,
+      });
+
+      const data = response.data;
+      if (data.access && data.refresh) {
+        localStorage.setItem('access_token', data.access);
+        localStorage.setItem('refresh_token', data.refresh);
+        if (data.user) {
+          localStorage.setItem('user', JSON.stringify(data.user));
+        }
+      }
+      return data;
+    } catch (error) {
+      if (!error.response) {
+        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+      }
+      throw new Error(formatErrorResponse(error.response.data, 'Google authentication failed.'));
+    }
+  },
+
+  /**
    * Verify user email address with Django REST backend (/api/accounts/verify-email/?uid=...&token=...)
    */
   verifyEmail: async (uid, token) => {

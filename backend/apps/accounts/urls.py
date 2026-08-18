@@ -9,6 +9,7 @@ from .views import (
     ChangePasswordView,
     DecoratedTokenRefreshView,
     ForgotPasswordView,
+    GoogleLoginView,
     InvitationCreateView,
     InvitationDetailView,
     LoginView,
@@ -85,6 +86,11 @@ urlpatterns = [
         "phone-login/verify-otp/",
         PhoneLoginVerifyOTPView.as_view(),
         name="phone-login-verify-otp",
+    ),
+    path(
+        "google-login/",
+        GoogleLoginView.as_view(),
+        name="google-login",
     ),
     path(
         "profile/",

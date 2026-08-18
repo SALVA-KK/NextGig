@@ -22,6 +22,7 @@ from .permissions import IsAdminRole
 from .serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
+    GoogleLoginSerializer,
     InvitationResponseSerializer,
     LoginSerializer,
     LogoutSerializer,
@@ -131,6 +132,7 @@ from .throttling import (
 )
 
 from .firebase import verify_firebase_id_token
+from .google_auth import verify_google_id_token
 
 logger = logging.getLogger(__name__)
 
@@ -703,12 +705,110 @@ class PhoneLoginVerifyOTPView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Check if Admin user has MFA active (identical security check as LoginView)
+        admin_mfa = AdminMFA.objects.filter(user=user).first()
+        if user.role == CustomUser.Role.ADMIN and admin_mfa and admin_mfa.is_enabled:
+            mfa_token = create_mfa_preauth_token(user)
+            return Response(
+                {
+                    "mfa_required": True,
+                    "mfa_token": mfa_token,
+                    "message": "MFA verification required.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
         update_last_login(None, user)
         refresh = RefreshToken.for_user(user)
 
         return Response(
             {
                 "message": "Phone login successful.",
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role": user.role,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class GoogleLoginView(APIView):
+    """
+    API endpoint that authenticates or auto-registers a user using Google OAuth 2.0 ID Token.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_scope = "login"
+
+    @extend_schema(
+        request=GoogleLoginSerializer,
+        responses={200: TokenResponseSerializer},
+        summary="Google OAuth login / auto-registration",
+        description="Authenticates an existing user or auto-registers a new student account using a verified Google OAuth ID Token.",
+    )
+    def post(self, request, *args, **kwargs):
+        """
+        Verifies Google ID Token server-side, retrieves or auto-creates verified user account, updates last_login, and returns JWT tokens.
+        """
+        serializer = GoogleLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        id_token_str = serializer.validated_data["id_token"]
+        google_user = verify_google_id_token(id_token_str)
+
+        if not google_user or not google_user.get("email"):
+            return Response(
+                {"detail": "Invalid, expired, or unverified Google ID token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = google_user["email"].strip().lower()
+        full_name = google_user.get("name") or email.split("@")[0]
+
+        user = CustomUser.objects.filter(email__iexact=email).first()
+
+        if not user:
+            # Auto-register new CustomUser for verified Google email
+            user = CustomUser.objects.create_user(
+                email=email,
+                full_name=full_name,
+                role=CustomUser.Role.STUDENT,
+                is_verified=True,
+            )
+            user.set_unusable_password()
+            user.save()
+            logger.info("Auto-registered new user %s via Google OAuth", email)
+
+        if not user.is_active:
+            return Response(
+                {"detail": "This account has been disabled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if Admin user has MFA active (same security check as LoginView)
+        admin_mfa = AdminMFA.objects.filter(user=user).first()
+        if user.role == CustomUser.Role.ADMIN and admin_mfa and admin_mfa.is_enabled:
+            mfa_token = create_mfa_preauth_token(user)
+            return Response(
+                {
+                    "mfa_required": True,
+                    "mfa_token": mfa_token,
+                    "message": "MFA verification required.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        update_last_login(None, user)
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
+                "message": "Google login successful.",
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "user": {

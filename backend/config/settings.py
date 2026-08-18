@@ -212,6 +212,12 @@ FIREBASE_CREDENTIALS_PATH = os.getenv(
     os.path.join(BASE_DIR, "config", "firebase-credentials.json"),
 )
 
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv(
+    "GOOGLE_CLIENT_ID",
+    "852841732506-4ff826cb1d8qe39m4l6b4bmgfe0l6pal.apps.googleusercontent.com",
+)
+
 
 # Simple JWT Configuration
 # Configures token lifetimes, rotation, and blacklisting behavior

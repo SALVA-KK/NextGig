@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
+import { GoogleLogin } from '@react-oauth/google';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -19,6 +20,48 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: string }
   const [registeredSuccess, setRegisteredSuccess] = useState(false);
+
+  const redirectBasedOnRole = (user) => {
+    if (user?.role === 'admin') {
+      navigate('/admin/dashboard');
+    } else {
+      navigate('/student/dashboard');
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (!credentialResponse?.credential) return;
+    setMessage(null);
+    setLoading(true);
+
+    try {
+      const data = await authService.loginGoogle(credentialResponse.credential);
+      if (data.mfa_required && data.mfa_token) {
+        sessionStorage.setItem('admin_mfa_token', data.mfa_token);
+        navigate('/admin/mfa-verify');
+        return;
+      }
+      setMessage({
+        type: 'success',
+        text: 'Google authentication successful! Redirecting...',
+      });
+      redirectBasedOnRole(data?.user);
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Google registration failed.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    setMessage({
+      type: 'error',
+      text: 'Google sign-in was cancelled or failed.',
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -72,6 +115,22 @@ export default function Register() {
       {message && (
         <div className={`alert-banner alert-${message.type}`}>
           {message.text}
+        </div>
+      )}
+
+      {!registeredSuccess && (
+        <div className="google-login-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '16px 0 20px 0' }}>
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={handleGoogleError}
+            shape="pill"
+            text="signup_with"
+          />
+          <div style={{ display: 'flex', alignItems: 'center', width: '100%', margin: '16px 0 4px 0', color: '#9ca3af', fontSize: '0.85rem' }}>
+            <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }}></div>
+            <span style={{ padding: '0 12px' }}>or register with email</span>
+            <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }}></div>
+          </div>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
 import { auth } from '../../firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+import { GoogleLogin } from '@react-oauth/google';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -63,6 +64,41 @@ export default function Login() {
     } else {
       navigate('/student/dashboard');
     }
+  };
+
+  // Google OAuth Login Handler
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (!credentialResponse?.credential) return;
+    setMessage(null);
+    setLoading(true);
+
+    try {
+      const data = await authService.loginGoogle(credentialResponse.credential);
+      if (data.mfa_required && data.mfa_token) {
+        sessionStorage.setItem('admin_mfa_token', data.mfa_token);
+        navigate('/admin/mfa-verify');
+        return;
+      }
+      setMessage({
+        type: 'success',
+        text: 'Google login successful! Redirecting...',
+      });
+      redirectBasedOnRole(data?.user);
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Google authentication failed.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    setMessage({
+      type: 'error',
+      text: 'Google sign-in was cancelled or failed.',
+    });
   };
 
   // Real Email Login Handler via Django REST API
@@ -158,6 +194,12 @@ export default function Login() {
         idToken ? null : otp.trim()
       );
 
+      if (data.mfa_required && data.mfa_token) {
+        sessionStorage.setItem('admin_mfa_token', data.mfa_token);
+        navigate('/admin/mfa-verify');
+        return;
+      }
+
       setMessage({
         type: 'success',
         text: 'Phone login successful! Welcome back.',
@@ -215,6 +257,21 @@ export default function Login() {
           {message.text}
         </div>
       )}
+
+      {/* Google OAuth Login Section */}
+      <div className="google-login-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '16px 0 20px 0' }}>
+        <GoogleLogin
+          onSuccess={handleGoogleSuccess}
+          onError={handleGoogleError}
+          shape="pill"
+          text="signin_with"
+        />
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%', margin: '16px 0 4px 0', color: '#9ca3af', fontSize: '0.85rem' }}>
+          <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }}></div>
+          <span style={{ padding: '0 12px' }}>or continue with</span>
+          <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }}></div>
+        </div>
+      </div>
 
       {/* METHOD 1: EMAIL & PASSWORD */}
       {method === 'email' && (

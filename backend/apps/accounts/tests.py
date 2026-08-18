@@ -96,6 +96,200 @@ class MSG91PhoneOTPTestCase(TestCase):
                 "Invalid or expired Firebase ID token.",
             )
 
+    def test_firebase_phone_login_admin_mfa_required(self):
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from apps.accounts.models import AdminMFA
+        cache.clear()
+
+        # Create an Admin user with phone number +919876543210 and active AdminMFA
+        admin_user = CustomUser.objects.create_user(
+            email="phone_admin_mfa@example.com",
+            full_name="Phone Admin MFA",
+            password="StrongPassword123!",
+            phone_number="+919876543210",
+            role=CustomUser.Role.ADMIN,
+            is_verified=True,
+        )
+        AdminMFA.objects.create(
+            user=admin_user,
+            totp_secret="JBSWY3DPEHPK3PXP",
+            is_enabled=True,
+        )
+
+        with patch("apps.accounts.views.verify_firebase_id_token", return_value="+919876543210"):
+            response = self.client.post(
+                "/api/accounts/phone-login/verify-otp/",
+                data={"id_token": "valid_firebase_id_token_for_admin"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            res_data = response.json()
+            # Assert MFA challenge is returned instead of direct access/refresh tokens
+            self.assertTrue(res_data.get("mfa_required"))
+            self.assertIn("mfa_token", res_data)
+            self.assertNotIn("access", res_data)
+            self.assertNotIn("refresh", res_data)
+
+
+@override_settings(ALLOWED_HOSTS=["*"])
+class GoogleOAuthTestCase(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+        self.existing_user = CustomUser.objects.create_user(
+            email="existing_google_user@example.com",
+            full_name="Google User",
+            password="StrongPassword123!",
+            is_verified=True,
+        )
+
+    def test_google_login_existing_user_success(self):
+        from unittest.mock import patch
+
+        mock_payload = {
+            "email": "existing_google_user@example.com",
+            "name": "Google User",
+            "google_id": "google_123456789",
+        }
+
+        with patch("apps.accounts.views.verify_google_id_token", return_value=mock_payload):
+            response = self.client.post(
+                "/api/accounts/google-login/",
+                data={"id_token": "valid_mock_google_id_token"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            res_data = response.json()
+            self.assertIn("access", res_data)
+            self.assertIn("refresh", res_data)
+            self.assertEqual(res_data["user"]["email"], "existing_google_user@example.com")
+            self.assertEqual(res_data["user"]["full_name"], "Google User")
+
+    def test_google_login_new_user_autoregistration(self):
+        from unittest.mock import patch
+
+        user_count_before = CustomUser.objects.count()
+        mock_payload = {
+            "email": "new_google_user@example.com",
+            "name": "New Google User",
+            "google_id": "google_987654321",
+        }
+
+        with patch("apps.accounts.views.verify_google_id_token", return_value=mock_payload):
+            response = self.client.post(
+                "/api/accounts/google-login/",
+                data={"id_token": "valid_mock_google_id_token_new"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            res_data = response.json()
+            self.assertIn("access", res_data)
+            self.assertIn("refresh", res_data)
+            self.assertEqual(res_data["user"]["email"], "new_google_user@example.com")
+            self.assertEqual(res_data["user"]["full_name"], "New Google User")
+            self.assertEqual(res_data["user"]["role"], "student")
+
+            # Verify CustomUser database record
+            self.assertEqual(CustomUser.objects.count(), user_count_before + 1)
+            created_user = CustomUser.objects.get(email="new_google_user@example.com")
+            self.assertTrue(created_user.is_verified)
+            self.assertFalse(created_user.has_usable_password())
+
+    def test_google_login_account_linking_no_duplicate(self):
+        from unittest.mock import patch
+
+        # User registered normally via email/password with mixed-case email
+        password_user = CustomUser.objects.create_user(
+            email="John@Example.com",
+            full_name="John Doe",
+            password="StrongPassword123!",
+            is_verified=True,
+        )
+
+        user_count_before = CustomUser.objects.count()
+
+        # User logs in via Google OAuth which returns lowercase "john@example.com"
+        mock_payload = {
+            "email": "john@example.com",
+            "name": "John Doe",
+            "google_id": "google_1020304050",
+        }
+
+        with patch("apps.accounts.views.verify_google_id_token", return_value=mock_payload):
+            response = self.client.post(
+                "/api/accounts/google-login/",
+                data={"id_token": "valid_mock_google_id_token"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            res_data = response.json()
+            self.assertIn("access", res_data)
+            self.assertIn("refresh", res_data)
+            self.assertEqual(res_data["user"]["id"], password_user.id)
+
+            # Confirm NO duplicate account was created in the database
+            self.assertEqual(CustomUser.objects.count(), user_count_before)
+
+    def test_google_login_admin_mfa_required(self):
+        from unittest.mock import patch
+        from apps.accounts.models import AdminMFA
+
+        # Create an Admin user with active AdminMFA
+        admin_user = CustomUser.objects.create_user(
+            email="admin_mfa_user@example.com",
+            full_name="Admin MFA User",
+            password="StrongPassword123!",
+            role=CustomUser.Role.ADMIN,
+            is_verified=True,
+        )
+        AdminMFA.objects.create(
+            user=admin_user,
+            totp_secret="JBSWY3DPEHPK3PXP",
+            is_enabled=True,
+        )
+
+        mock_payload = {
+            "email": "admin_mfa_user@example.com",
+            "name": "Admin MFA User",
+            "google_id": "google_admin_999",
+        }
+
+        with patch("apps.accounts.views.verify_google_id_token", return_value=mock_payload):
+            response = self.client.post(
+                "/api/accounts/google-login/",
+                data={"id_token": "valid_admin_google_id_token"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            res_data = response.json()
+            # Assert MFA challenge is returned instead of direct access/refresh tokens
+            self.assertTrue(res_data.get("mfa_required"))
+            self.assertIn("mfa_token", res_data)
+            self.assertNotIn("access", res_data)
+            self.assertNotIn("refresh", res_data)
+
+    def test_google_login_invalid_token_rejected(self):
+        from unittest.mock import patch
+
+        with patch("apps.accounts.views.verify_google_id_token", return_value=None):
+            response = self.client.post(
+                "/api/accounts/google-login/",
+                data={"id_token": "invalid_or_expired_google_token"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json()["detail"],
+                "Invalid, expired, or unverified Google ID token.",
+            )
 
 
 from apps.accounts.models import Invitation
