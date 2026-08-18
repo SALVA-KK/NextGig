@@ -19,3 +19,7 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Firebase Credentials
+**/firebase-credentials.json
+backend/config/firebase-credentials.json

@@ -7,9 +7,9 @@ export default function Sidebar() {
   const location = useLocation();
   const isAdmin = authService.isAdmin();
 
-  const handleLogout = () => {
-    authService.logout();
-    navigate('/login');
+  const handleLogout = async () => {
+    await authService.logout();
+    navigate('/login', { replace: true });
   };
 
   const adminNavItems = [

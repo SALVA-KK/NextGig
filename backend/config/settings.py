@@ -63,6 +63,7 @@ AUTH_USER_MODEL = "accounts.CustomUser"
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     "corsheaders.middleware.CorsMiddleware",
+    "config.middleware.NoCacheHeadersMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -115,12 +116,18 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 8,
+        },
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+    {
+        'NAME': 'apps.accounts.validators.PasswordComplexityValidator',
     },
 ]
 
@@ -149,6 +156,18 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/day",
+        "login": "5/minute",
+        "register_burst": "1/4s",
+        "register_sustained": "20/hour",
+        "forgot_password_ip": "3/hour",
+        "forgot_password_email": "3/hour",
+    },
 }
 
 
@@ -183,9 +202,15 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
-# MSG91 SMS Gateway Configuration
+# MSG91 SMS Gateway Configuration (Dormant - Replaced by Firebase Phone Auth)
 MSG91_AUTHKEY = os.getenv("MSG91_AUTHKEY")
 MSG91_WIDGET_ID = os.getenv("MSG91_WIDGET_ID", "SecureOTPWidgetDKTD")
+
+# Firebase Admin SDK Configuration
+FIREBASE_CREDENTIALS_PATH = os.getenv(
+    "FIREBASE_CREDENTIALS_PATH",
+    os.path.join(BASE_DIR, "config", "firebase-credentials.json"),
+)
 
 
 # Simple JWT Configuration

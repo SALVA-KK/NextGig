@@ -22,6 +22,8 @@ export default function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
+    setLoading(true);
     setMessage(null);
 
     // Client-side validation for password match
@@ -30,10 +32,9 @@ export default function Register() {
         type: 'error',
         text: 'Passwords do not match. Please re-enter your passwords.',
       });
+      setLoading(false);
       return;
     }
-
-    setLoading(true);
 
     try {
       const data = await authService.register({
@@ -87,7 +88,7 @@ export default function Register() {
         </div>
       ) : (
         /* Registration Form */
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form onSubmit={handleSubmit} className="auth-form" noValidate>
           <div className="form-group">
             <label htmlFor="fullName">Full Name</label>
             <input
@@ -96,7 +97,6 @@ export default function Register() {
               placeholder="Jane Doe"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              required
               disabled={loading}
               className={`form-input ${loading ? 'disabled' : ''}`}
             />
@@ -110,7 +110,6 @@ export default function Register() {
               placeholder="name@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
               disabled={loading}
               className={`form-input ${loading ? 'disabled' : ''}`}
             />
@@ -137,10 +136,12 @@ export default function Register() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
               disabled={loading}
               className={`form-input ${loading ? 'disabled' : ''}`}
             />
+            <small className="form-help-text" style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>
+              Password must be 8-128 characters long and include an uppercase letter, a lowercase letter, a number, and a special character (!@#$%^&*...).
+            </small>
           </div>
 
           <div className="form-group">
@@ -151,7 +152,6 @@ export default function Register() {
               placeholder="••••••••"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              required
               disabled={loading}
               className={`form-input ${loading ? 'disabled' : ''}`}
             />

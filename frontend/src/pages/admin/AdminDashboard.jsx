@@ -1,5 +1,6 @@
 import React from 'react';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
+import ChangePasswordCard from '../../components/profile/ChangePasswordCard';
 
 export default function AdminDashboard() {
   return (
@@ -25,6 +26,10 @@ export default function AdminDashboard() {
           </div>
           <p className="stat-value">Multi-Factor Authentication Active</p>
         </div>
+      </div>
+
+      <div style={{ marginTop: '24px' }}>
+        <ChangePasswordCard />
       </div>
     </DashboardLayout>
   );

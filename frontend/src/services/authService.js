@@ -38,6 +38,65 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Helper to extract human-readable error text from DRF error response payloads.
+ * Handles strings, arrays, field error objects ({ email: [...], password: [...] }), and nested errors.
+ */
+const formatErrorResponse = (data, defaultFallback = 'An error occurred. Please try again.', status = null) => {
+  if (status === 429) {
+    return 'Too many attempts — please wait a moment and try again.';
+  }
+  if (!data) return defaultFallback;
+
+  if (typeof data === 'string') {
+    if (data.toLowerCase().includes('throttled')) {
+      return 'Too many attempts — please wait a moment and try again.';
+    }
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map((item) => (typeof item === 'string' ? item : JSON.stringify(item))).join(' ');
+  }
+
+  if (typeof data === 'object') {
+    if (data.detail && typeof data.detail === 'string') {
+      if (data.detail.toLowerCase().includes('throttled')) {
+        return 'Too many attempts — please wait a moment and try again.';
+      }
+      return data.detail;
+    }
+    if (data.non_field_errors) {
+      return Array.isArray(data.non_field_errors)
+        ? data.non_field_errors.join(' ')
+        : String(data.non_field_errors);
+    }
+    if (data.error && typeof data.error === 'string') {
+      return data.error;
+    }
+    if (data.message && typeof data.message === 'string') {
+      return data.message;
+    }
+
+    const messages = [];
+    for (const [key, val] of Object.entries(data)) {
+      if (key === 'detail' || key === 'non_field_errors') continue;
+      const formattedKey = key
+        .split('_')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      const valStr = Array.isArray(val) ? (val.length === 1 ? val[0] : val.join(' ')) : String(val);
+      messages.push(`${formattedKey}: ${valStr}`);
+    }
+
+    if (messages.length > 0) {
+      return messages.join(' | ');
+    }
+  }
+
+  return defaultFallback;
+};
+
 export const authService = {
   /**
    * Authenticate user with Email + Password against Django REST backend (/api/accounts/login/)
@@ -62,26 +121,7 @@ export const authService = {
       if (!error.response) {
         throw new Error('Unable to connect to the server. Please ensure the backend is running.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Login failed. Please check your credentials.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.non_field_errors) {
-        errorMsg = Array.isArray(data.non_field_errors)
-          ? data.non_field_errors[0]
-          : data.non_field_errors;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.email) {
-        errorMsg = Array.isArray(data.email) ? data.email[0] : data.email;
-      } else if (data.password) {
-        errorMsg = Array.isArray(data.password) ? data.password[0] : data.password;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Login failed. Please check your credentials.'));
     }
   },
 
@@ -98,36 +138,23 @@ export const authService = {
       if (!error.response) {
         throw new Error('Unable to connect to the server. Please ensure the backend is running.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Failed to request OTP. Please check the phone number.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.phone_number) {
-        errorMsg = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.non_field_errors) {
-        errorMsg = Array.isArray(data.non_field_errors)
-          ? data.non_field_errors[0]
-          : data.non_field_errors;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to request OTP. Please check the phone number.'));
     }
   },
 
   /**
    * Verify phone login OTP against Django REST backend (/api/accounts/phone-login/verify-otp/)
    */
-  verifyPhoneLoginOTP: async (phone_number, otp) => {
+  verifyPhoneLoginOTP: async (phoneOrIdToken, otp = null) => {
     try {
-      const response = await api.post('/accounts/phone-login/verify-otp/', {
-        phone_number,
-        otp,
-      });
+      const payload =
+        typeof phoneOrIdToken === 'object' && phoneOrIdToken.id_token
+          ? { id_token: phoneOrIdToken.id_token }
+          : typeof phoneOrIdToken === 'string' && phoneOrIdToken.length > 50
+            ? { id_token: phoneOrIdToken }
+            : { phone_number: phoneOrIdToken, otp };
+
+      const response = await api.post('/accounts/phone-login/verify-otp/', payload);
 
       const data = response.data;
       if (data.access && data.refresh) {
@@ -142,26 +169,7 @@ export const authService = {
       if (!error.response) {
         throw new Error('Unable to connect to the server. Please ensure the backend is running.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Invalid or expired OTP.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.otp) {
-        errorMsg = Array.isArray(data.otp) ? data.otp[0] : data.otp;
-      } else if (data.phone_number) {
-        errorMsg = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
-      } else if (data.non_field_errors) {
-        errorMsg = Array.isArray(data.non_field_errors)
-          ? data.non_field_errors[0]
-          : data.non_field_errors;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Invalid or expired OTP token.'));
     }
   },
 
@@ -376,12 +384,22 @@ export const authService = {
   },
 
   /**
-   * Remove stored authentication tokens and user data from localStorage
+   * Remove stored authentication tokens and user data from localStorage & sessionStorage,
+   * and attempt server-side refresh token blacklisting.
    */
-  logout: () => {
+  logout: async () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (refreshToken) {
+      try {
+        await api.post('/accounts/logout/', { refresh: refreshToken });
+      } catch (e) {
+        // Ignore network or token expiration errors on logout
+      }
+    }
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+    sessionStorage.removeItem('admin_mfa_token');
   },
 
   /**
@@ -560,37 +578,13 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
+      if (error.response && error.response.status === 429) {
+        throw new Error('Too many attempts — please wait a moment and try again.');
+      }
       if (!error.response) {
         throw new Error('Unable to connect to the server. Please ensure the backend is running.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Registration failed. Please check the provided information.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.non_field_errors) {
-        errorMsg = Array.isArray(data.non_field_errors)
-          ? data.non_field_errors[0]
-          : data.non_field_errors;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.email) {
-        errorMsg = Array.isArray(data.email) ? data.email[0] : data.email;
-      } else if (data.full_name) {
-        errorMsg = Array.isArray(data.full_name) ? data.full_name[0] : data.full_name;
-      } else if (data.phone_number) {
-        errorMsg = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
-      } else if (data.password) {
-        errorMsg = Array.isArray(data.password) ? data.password[0] : data.password;
-      } else if (data.confirm_password) {
-        errorMsg = Array.isArray(data.confirm_password)
-          ? data.confirm_password[0]
-          : data.confirm_password;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Registration failed. Please check the provided information.', error.response.status));
     }
   },
 };

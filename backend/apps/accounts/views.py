@@ -113,6 +113,7 @@ from .utils import (
     get_phone_lookup_variants,
     get_secret_fingerprint,
     get_totp_provisioning_uri,
+    send_existing_account_email,
     send_password_reset_email,
     send_phone_otp,
     send_verification_email,
@@ -121,6 +122,15 @@ from .utils import (
     verify_phone_otp,
     verify_totp_code,
 )
+
+from .throttling import (
+    ForgotPasswordEmailRateThrottle,
+    ForgotPasswordIPRateThrottle,
+    RegisterBurstRateThrottle,
+    RegisterSustainedRateThrottle,
+)
+
+from .firebase import verify_firebase_id_token
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +143,7 @@ class StudentRegistrationView(generics.CreateAPIView):
 
     serializer_class = StudentRegistrationSerializer
     permission_classes = [AllowAny]
+    throttle_classes = [RegisterBurstRateThrottle, RegisterSustainedRateThrottle]
 
     @extend_schema(
         summary="Register new student account",
@@ -144,11 +155,28 @@ class StudentRegistrationView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         """
         Processes student registration and sends verification email.
-        If email sending fails, the account creation persists cleanly.
+        If email belongs to an existing account, sends an notification email to owner.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+
+        if getattr(serializer, "is_duplicate", False):
+            try:
+                send_existing_account_email(user)
+            except Exception as exc:
+                logger.error("Failed to send existing account email to %s: %s", user.email, exc)
+
+            return Response(
+                {
+                    "message": "Student account registered successfully. Please check your email to verify your account.",
+                    "user": {
+                        "id": user.id,
+                        "email": user.email,
+                    },
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
         email_sent = True
         try:
@@ -252,6 +280,7 @@ class LoginView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     @extend_schema(
         request=LoginSerializer,
@@ -386,6 +415,7 @@ class ForgotPasswordView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ForgotPasswordIPRateThrottle, ForgotPasswordEmailRateThrottle]
 
     @extend_schema(
         request=ForgotPasswordSerializer,
@@ -495,6 +525,7 @@ class RequestOTPView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     @extend_schema(
         request=RequestOTPSerializer,
@@ -509,22 +540,10 @@ class RequestOTPView(APIView):
         serializer = RequestOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        phone_number = serializer.validated_data["phone_number"]
-        purpose = serializer.validated_data["purpose"]
-
-        otp = create_phone_otp(phone_number, purpose)
-        try:
-            send_phone_otp(phone_number, otp, purpose)
-        except Exception as exc:
-            logger.error("Failed to send OTP to %s: %s", phone_number, exc)
-            return Response(
-                {"error": "Failed to send SMS OTP. Please check the phone number or try again later."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
         return Response(
             {
-                "message": "If the phone number is eligible, an OTP has been sent."
+                "message": "SMS dispatch is managed on the client via Firebase Phone Authentication.",
+                "notice": "For Firebase Phone Auth, call client SDK signInWithPhoneNumber and send id_token to /verify-otp/."
             },
             status=status.HTTP_200_OK,
         )
@@ -532,7 +551,7 @@ class RequestOTPView(APIView):
 
 class VerifyOTPView(APIView):
     """
-    API endpoint to verify a submitted phone OTP code.
+    API endpoint to verify a submitted phone OTP code or Firebase ID token.
     """
 
     permission_classes = [AllowAny]
@@ -540,44 +559,60 @@ class VerifyOTPView(APIView):
     @extend_schema(
         request=VerifyOTPSerializer,
         responses={200: None},
-        summary="Verify phone OTP",
-        description="Verifies a previously issued phone OTP.",
+        summary="Verify phone OTP / Firebase ID token",
+        description="Verifies a client-side Firebase ID token or fallback MSG91 6-digit phone OTP code.",
     )
     def post(self, request, *args, **kwargs):
         """
-        Validates payload structure and evaluates OTP validity against the database record.
+        Verifies Firebase ID token (or legacy OTP) and returns verification confirmation.
         """
-        serializer = VerifyOTPSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        id_token = request.data.get("id_token")
+        phone_number = request.data.get("phone_number")
+        otp = request.data.get("otp")
+        purpose = request.data.get("purpose", PhoneOTP.OTPPurpose.LOGIN)
 
-        phone_number = serializer.validated_data["phone_number"]
-        otp = serializer.validated_data["otp"]
-        purpose = serializer.validated_data["purpose"]
-
-        is_valid = verify_phone_otp(
-            phone_number=phone_number,
-            otp=otp,
-            purpose=purpose,
-        )
-
-        if not is_valid:
+        if id_token:
+            verified_phone = verify_firebase_id_token(id_token)
+            if not verified_phone:
+                return Response(
+                    {"detail": "Invalid or expired Firebase ID token."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             return Response(
-                {"detail": "Invalid or expired OTP."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"message": "OTP verified successfully.", "phone_number": verified_phone},
+                status=status.HTTP_200_OK,
+            )
+
+        if phone_number and otp:
+            is_valid = verify_phone_otp(
+                phone_number=phone_number,
+                otp=otp,
+                purpose=purpose,
+            )
+            if not is_valid:
+                return Response(
+                    {"detail": "Invalid or expired OTP."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response(
+                {"message": "OTP verified successfully."},
+                status=status.HTTP_200_OK,
             )
 
         return Response(
-            {"message": "OTP verified successfully."},
-            status=status.HTTP_200_OK,
+            {"detail": "Either 'id_token' or both 'phone_number' and 'otp' are required."},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
 
 class PhoneLoginRequestOTPView(APIView):
     """
     API endpoint that sends a login OTP code to a registered phone number.
+    (Deprecated in favor of Firebase Phone Auth client-side SMS dispatch).
     """
 
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     @extend_schema(
         request=RequestOTPSerializer,
@@ -587,7 +622,7 @@ class PhoneLoginRequestOTPView(APIView):
     )
     def post(self, request, *args, **kwargs):
         """
-        Validates target phone number, verifies account existence and verification status, and dispatches login OTP.
+        Validates target phone number, verifies account existence, and dispatches login OTP.
         """
         payload = {
             "phone_number": request.data.get("phone_number"),
@@ -596,26 +631,10 @@ class PhoneLoginRequestOTPView(APIView):
         serializer = RequestOTPSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
 
-        phone_number = serializer.validated_data["phone_number"]
-        purpose = PhoneOTP.OTPPurpose.LOGIN
-        variants = get_phone_lookup_variants(phone_number)
-
-        user = CustomUser.objects.filter(phone_number__in=variants, is_verified=True).first()
-        if user:
-            target_phone = user.phone_number or phone_number
-            otp = create_phone_otp(target_phone, purpose)
-            try:
-                send_phone_otp(target_phone, otp, purpose)
-            except Exception as exc:
-                logger.error("Failed to send OTP to %s: %s", target_phone, exc)
-                return Response(
-                    {"error": "Failed to send SMS OTP. Please check the phone number or try again later."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
         return Response(
             {
-                "message": "If the phone number is registered, an OTP has been sent."
+                "message": "SMS dispatch is managed on the client via Firebase Phone Authentication.",
+                "notice": "For Firebase Phone Auth, call client SDK signInWithPhoneNumber and send id_token to /verify-otp/."
             },
             status=status.HTTP_200_OK,
         )
@@ -623,49 +642,58 @@ class PhoneLoginRequestOTPView(APIView):
 
 class PhoneLoginVerifyOTPView(APIView):
     """
-    API endpoint that authenticates a verified user using phone OTP.
+    API endpoint that authenticates a verified user using Firebase Phone Auth ID token or legacy OTP.
     """
 
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     @extend_schema(
         request=VerifyOTPSerializer,
         responses={200: TokenResponseSerializer},
         summary="Phone login",
-        description="Authenticates a verified user using phone OTP and returns JWT access and refresh tokens.",
+        description="Authenticates a verified user using Firebase ID token (or legacy OTP) and returns JWT access and refresh tokens.",
     )
     def post(self, request, *args, **kwargs):
         """
-        Verifies phone login OTP, retrieves verified user, updates last_login, and returns JWT tokens.
+        Verifies Firebase ID token or phone OTP, retrieves user, updates last_login, and returns JWT tokens.
         """
-        payload = {
-            "phone_number": request.data.get("phone_number"),
-            "otp": request.data.get("otp"),
-            "purpose": PhoneOTP.OTPPurpose.LOGIN,
-        }
-        serializer = VerifyOTPSerializer(data=payload)
-        serializer.is_valid(raise_exception=True)
+        id_token = request.data.get("id_token")
+        phone_number = request.data.get("phone_number")
+        otp = request.data.get("otp")
 
-        phone_number = serializer.validated_data["phone_number"]
-        otp = serializer.validated_data["otp"]
-        variants = get_phone_lookup_variants(phone_number)
+        verified_phone = None
 
-        is_valid = verify_phone_otp(
-            phone_number=phone_number,
-            otp=otp,
-            purpose=PhoneOTP.OTPPurpose.LOGIN,
-        )
-
-        if not is_valid:
+        if id_token:
+            verified_phone = verify_firebase_id_token(id_token)
+            if not verified_phone:
+                return Response(
+                    {"detail": "Invalid or expired Firebase ID token."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif phone_number and otp:
+            is_valid = verify_phone_otp(
+                phone_number=phone_number,
+                otp=otp,
+                purpose=PhoneOTP.OTPPurpose.LOGIN,
+            )
+            if not is_valid:
+                return Response(
+                    {"detail": "Invalid or expired OTP."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            verified_phone = phone_number
+        else:
             return Response(
-                {"detail": "Invalid or expired OTP."},
+                {"detail": "Either 'id_token' or both 'phone_number' and 'otp' are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        variants = get_phone_lookup_variants(verified_phone)
         user = CustomUser.objects.filter(phone_number__in=variants, is_verified=True).first()
         if not user:
             return Response(
-                {"detail": "Invalid or expired OTP."},
+                {"detail": "No active user account found matching this verified phone number."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

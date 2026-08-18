@@ -1,5 +1,6 @@
 import secrets
 from django.conf import settings
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -17,16 +18,39 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     Enforces password validation, email/phone uniqueness, and automatically assigns the STUDENT role.
     """
 
+    email = serializers.EmailField(
+        required=True,
+        error_messages={
+            "required": "Email address is required.",
+            "invalid": "Please enter a valid email address.",
+            "blank": "Email address cannot be blank.",
+        },
+    )
+    full_name = serializers.CharField(
+        required=True,
+        error_messages={
+            "required": "Full name is required.",
+            "blank": "Full name cannot be blank.",
+        },
+    )
     password = serializers.CharField(
         write_only=True,
         required=True,
         style={"input_type": "password"},
+        error_messages={
+            "required": "Password is required.",
+            "blank": "Password cannot be blank.",
+        },
         help_text="Password must meet standard Django validation rules.",
     )
     confirm_password = serializers.CharField(
         write_only=True,
         required=True,
         style={"input_type": "password"},
+        error_messages={
+            "required": "Confirm password is required.",
+            "blank": "Confirm password cannot be blank.",
+        },
         help_text="Must match the password field.",
     )
     invite_token = serializers.CharField(
@@ -51,12 +75,10 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         """
-        Ensure email is unique (case-insensitive check) and return normalized email.
+        Normalizes input email address.
+        User existence is checked in create() to prevent account enumeration.
         """
-        normalized_email = value.strip().lower()
-        if CustomUser.objects.filter(email__iexact=normalized_email).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-        return normalized_email
+        return value.strip().lower()
 
     def validate_phone_number(self, value):
         """
@@ -103,10 +125,11 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """
         Create and return a new Student user using CustomUserManager.create_user().
-        Links user to Invitation if a valid invite_token is provided.
+        If user already exists, performs dummy password hashing for timing protection
+        and marks self.is_duplicate = True without creating a duplicate record.
         """
         # Remove confirm_password field as it is only needed for validation
-        validated_data.pop("confirm_password")
+        validated_data.pop("confirm_password", None)
 
         # Extract optional invite token
         invite_token = validated_data.pop("invite_token", None)
@@ -118,7 +141,15 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         email = validated_data.pop("email")
         password = validated_data.pop("password")
 
-        # Use CustomUserManager.create_user to handle normalization and password hashing
+        # Anti-enumeration: Check if account already exists
+        existing_user = CustomUser.objects.filter(email__iexact=email).first()
+        if existing_user:
+            # Perform password hashing to preserve timing consistency
+            make_password(password)
+            self.is_duplicate = True
+            return existing_user
+
+        self.is_duplicate = False
         user = CustomUser.objects.create_user(
             email=email,
             password=password,
@@ -146,12 +177,21 @@ class LoginSerializer(serializers.Serializer):
 
     email = serializers.EmailField(
         required=True,
+        error_messages={
+            "required": "Email address is required.",
+            "invalid": "Please enter a valid email address.",
+            "blank": "Email address cannot be blank.",
+        },
         help_text="Registered email address.",
     )
     password = serializers.CharField(
         write_only=True,
         required=True,
         style={"input_type": "password"},
+        error_messages={
+            "required": "Password is required.",
+            "blank": "Password cannot be blank.",
+        },
         help_text="Account password.",
     )
 
@@ -345,34 +385,48 @@ class RequestOTPSerializer(serializers.Serializer):
 
 class VerifyOTPSerializer(serializers.Serializer):
     """
-    Serializer for verifying a received 6-digit phone OTP code.
-    Validates phone number format, OTP string length, and workflow purpose choice.
+    Serializer for verifying phone OTP / Firebase ID token.
+    Supports both client-side Firebase ID tokens (id_token) and legacy 6-digit OTP codes.
     """
 
     phone_number = serializers.CharField(
         max_length=20,
-        required=True,
-        help_text="Phone number receiving the OTP.",
+        required=False,
+        help_text="Phone number receiving the OTP (optional if id_token is provided).",
     )
 
     otp = serializers.CharField(
         max_length=6,
         min_length=6,
-        required=True,
+        required=False,
         write_only=True,
-        help_text="Six-digit OTP code.",
+        help_text="Six-digit OTP code (legacy).",
+    )
+
+    id_token = serializers.CharField(
+        required=False,
+        write_only=True,
+        help_text="Firebase ID token from Firebase Phone Auth.",
     )
 
     purpose = serializers.ChoiceField(
         choices=PhoneOTP.OTPPurpose.choices,
-        required=True,
+        required=False,
+        default=PhoneOTP.OTPPurpose.LOGIN,
         help_text="Workflow purpose for the OTP.",
     )
+
+    def validate(self, attrs):
+        if not attrs.get("id_token") and not (attrs.get("phone_number") and attrs.get("otp")):
+            raise serializers.ValidationError("Either 'id_token' or both 'phone_number' and 'otp' must be provided.")
+        return attrs
 
     def validate_phone_number(self, value):
         """
         Normalizes phone number to standard E.164 format.
         """
+        if not value:
+            return value
         try:
             return normalize_phone_number(value)
         except ValueError as error:

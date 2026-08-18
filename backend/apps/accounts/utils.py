@@ -16,7 +16,8 @@ from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
-from .models import PhoneOTP
+from .firebase import verify_firebase_id_token
+from .models import AdminMFA, CustomUser, Invitation, PhoneOTP
 
 logger = logging.getLogger(__name__)
 
@@ -496,4 +497,35 @@ def verify_and_consume_backup_code(admin_mfa, code):
         admin_mfa.save(update_fields=["backup_codes"])
 
     return matched
+
+
+def send_existing_account_email(user):
+    """
+    Sends an email notifying an existing user that a registration attempt was made with their email address,
+    providing links to log in or reset their password.
+    """
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    login_url = f"{frontend_url}/login"
+    reset_url = f"{frontend_url}/forgot-password"
+
+    subject = "NextGig Account Registration Attempt"
+    message = (
+        f"Hi {user.full_name},\n\n"
+        f"A registration attempt was made on NextGig using your email address ({user.email}).\n\n"
+        f"An account with this email address already exists. If this was you, you can log in to your account here:\n"
+        f"{login_url}\n\n"
+        f"If you forgot your password, you can reset it here:\n"
+        f"{reset_url}\n\n"
+        f"Best regards,\nThe NextGig Team"
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@nextgig.com")
+    recipient_list = [user.email]
+
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email=from_email,
+        recipient_list=recipient_list,
+        fail_silently=False,
+    )
 

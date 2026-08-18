@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
+import { auth } from '../../firebase';
+import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -20,6 +22,7 @@ export default function Login() {
   const [otpSent, setOtpSent] = useState(false);
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [confirmationResult, setConfirmationResult] = useState(null);
 
   // Status message state for UI feedback
   const [message, setMessage] = useState(null);
@@ -33,6 +36,20 @@ export default function Login() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
+  // Clean up RecaptchaVerifier on unmount
+  useEffect(() => {
+    return () => {
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {
+          // ignore
+        }
+        window.recaptchaVerifier = null;
+      }
+    };
+  }, []);
+
   // Handle tab switching
   const handleMethodChange = (newMethod) => {
     setMethod(newMethod);
@@ -40,71 +57,88 @@ export default function Login() {
   };
 
   // Helper to redirect based on user role
-  const redirectBasedOnRole = (userData) => {
-    const role = userData?.role || authService.getUserRole();
-    if (role === 'admin') {
-      navigate('/admin');
+  const redirectBasedOnRole = (user) => {
+    if (user?.role === 'admin') {
+      navigate('/admin/dashboard');
     } else {
-      navigate('/dashboard');
+      navigate('/student/dashboard');
     }
   };
 
   // Real Email Login Handler via Django REST API
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
+
     setMessage(null);
     setLoading(true);
 
     try {
-      const data = await authService.loginEmail(email, password);
-      if (data.mfa_required && data.mfa_token) {
-        sessionStorage.setItem('admin_mfa_token', data.mfa_token);
-        navigate('/admin/mfa-verify');
-        return;
-      }
+      const data = await authService.loginEmail(email.trim(), password);
       setMessage({
         type: 'success',
-        text: data.message || 'Login successful! Welcome back.',
+        text: 'Login successful! Redirecting...',
       });
-      redirectBasedOnRole(data.user);
+      redirectBasedOnRole(data?.user);
     } catch (err) {
       setMessage({
         type: 'error',
-        text: err.message || 'Invalid email or password.',
+        text: err.message || 'Login failed. Please check your credentials.',
       });
     } finally {
       setLoading(false);
     }
   };
 
-  // Real Phone Login Request OTP Handler via Django REST API
+  // Firebase Phone Login Request OTP Handler
   const handleSendOtp = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    // Synchronous request guard: prevent duplicate calls while loading or during cooldown
     if (phoneLoading || cooldown > 0 || !phone.trim()) return;
 
     setMessage(null);
     setPhoneLoading(true);
 
     try {
-      const data = await authService.requestPhoneLoginOTP(phone.trim());
+      let formattedPhone = phone.trim();
+      if (!formattedPhone.startsWith('+')) {
+        const digits = formattedPhone.replace(/\D/g, '');
+        formattedPhone = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+      }
+
+      if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+          callback: () => {},
+        });
+      }
+
+      const confirmation = await signInWithPhoneNumber(auth, formattedPhone, window.recaptchaVerifier);
+      setConfirmationResult(confirmation);
       setOtpSent(true);
       setCooldown(15);
       setMessage({
         type: 'success',
-        text: data.message || 'If the phone number is registered, an OTP has been sent.',
+        text: 'Firebase SMS OTP dispatched to your phone.',
       });
     } catch (err) {
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (clearErr) {
+          // ignore
+        }
+        window.recaptchaVerifier = null;
+      }
       setMessage({
         type: 'error',
-        text: err.message || 'Failed to send OTP. Please check the phone number.',
+        text: err.message || 'Failed to send SMS OTP via Firebase. Please check phone format or try again.',
       });
     } finally {
       setPhoneLoading(false);
     }
   };
 
-  // Real Phone Login Verify OTP Handler via Django REST API
+  // Firebase Phone Login Verify OTP Handler
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
     if (!otp.trim()) return;
@@ -113,7 +147,17 @@ export default function Login() {
     setPhoneLoading(true);
 
     try {
-      const data = await authService.verifyPhoneLoginOTP(phone.trim(), otp.trim());
+      let idToken = null;
+      if (confirmationResult) {
+        const userCredential = await confirmationResult.confirm(otp.trim());
+        idToken = await userCredential.user.getIdToken();
+      }
+
+      const data = await authService.verifyPhoneLoginOTP(
+        idToken || phone.trim(),
+        idToken ? null : otp.trim()
+      );
+
       setMessage({
         type: 'success',
         text: 'Phone login successful! Welcome back.',
@@ -122,7 +166,7 @@ export default function Login() {
     } catch (err) {
       setMessage({
         type: 'error',
-        text: err.message || 'Invalid or expired OTP.',
+        text: err.message || 'Invalid or expired OTP token.',
       });
     } finally {
       setPhoneLoading(false);
@@ -133,6 +177,7 @@ export default function Login() {
   const handleResetPhone = () => {
     setOtpSent(false);
     setOtp('');
+    setConfirmationResult(null);
     setCooldown(0);
     setMessage(null);
   };
@@ -173,7 +218,7 @@ export default function Login() {
 
       {/* METHOD 1: EMAIL & PASSWORD */}
       {method === 'email' && (
-        <form onSubmit={handleEmailSubmit} className="auth-form">
+        <form onSubmit={handleEmailSubmit} className="auth-form" noValidate>
           <div className="form-group">
             <label htmlFor="email">Email Address</label>
             <input
@@ -182,7 +227,6 @@ export default function Login() {
               placeholder="name@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
               disabled={loading}
               className={`form-input ${loading ? 'disabled' : ''}`}
             />
@@ -201,7 +245,6 @@ export default function Login() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
               disabled={loading}
               className={`form-input ${loading ? 'disabled' : ''}`}
             />
@@ -218,7 +261,7 @@ export default function Login() {
         <div className="auth-form-wrapper">
           {!otpSent ? (
             /* STEP 1: Enter Phone Number & Send OTP */
-            <form onSubmit={handleSendOtp} className="auth-form">
+            <form onSubmit={handleSendOtp} className="auth-form" noValidate>
               <div className="form-group">
                 <label htmlFor="phone">Phone Number</label>
                 <input
@@ -232,6 +275,8 @@ export default function Login() {
                   className={`form-input ${phoneLoading ? 'disabled' : ''}`}
                 />
               </div>
+
+              <div id="recaptcha-container"></div>
 
               <button type="submit" className="btn-primary" disabled={phoneLoading || cooldown > 0}>
                 {phoneLoading ? 'Sending OTP...' : cooldown > 0 ? `Resend in ${cooldown}s` : 'Send OTP'}

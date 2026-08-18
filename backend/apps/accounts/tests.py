@@ -8,6 +8,8 @@ from apps.accounts.utils import format_phone_for_msg91
 @override_settings(ALLOWED_HOSTS=["*"])
 class MSG91PhoneOTPTestCase(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         self.client = APIClient()
         self.user = CustomUser.objects.create_user(
             email="testuser@example.com",
@@ -33,6 +35,68 @@ class MSG91PhoneOTPTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Invalid or expired OTP.")
 
+    def test_firebase_id_token_phone_login_success(self):
+        from unittest.mock import patch
+        from django.core.cache import cache
+        cache.clear()
+
+        with patch("apps.accounts.views.verify_firebase_id_token", return_value="+919207362507"):
+            response = self.client.post(
+                "/api/accounts/phone-login/verify-otp/",
+                data={"id_token": "mock_valid_firebase_id_token_123456"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            res_data = response.json()
+            self.assertIn("access", res_data)
+            self.assertIn("refresh", res_data)
+            self.assertEqual(res_data["user"]["email"], "testuser@example.com")
+            self.assertEqual(res_data["user"]["full_name"], "Test User")
+
+    def test_firebase_login_unknown_phone_number_rejected(self):
+        from unittest.mock import patch
+        from django.core.cache import cache
+        cache.clear()
+
+        user_count_before = CustomUser.objects.count()
+
+        # Firebase token is valid and returns +919999999999 (not registered in database)
+        with patch("apps.accounts.views.verify_firebase_id_token", return_value="+919999999999"):
+            response = self.client.post(
+                "/api/accounts/phone-login/verify-otp/",
+                data={"id_token": "mock_token_unregistered_phone"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json()["detail"],
+                "No active user account found matching this verified phone number.",
+            )
+            # Confirm NO user was auto-created
+            self.assertEqual(CustomUser.objects.count(), user_count_before)
+
+    def test_firebase_login_invalid_token_rejected(self):
+        from unittest.mock import patch
+        from django.core.cache import cache
+        cache.clear()
+
+        # Firebase ID token verification fails (returns None)
+        with patch("apps.accounts.views.verify_firebase_id_token", return_value=None):
+            response = self.client.post(
+                "/api/accounts/phone-login/verify-otp/",
+                data={"id_token": "invalid_or_expired_token_abc"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json()["detail"],
+                "Invalid or expired Firebase ID token.",
+            )
+
+
 
 from apps.accounts.models import Invitation
 
@@ -40,6 +104,8 @@ from apps.accounts.models import Invitation
 @override_settings(ALLOWED_HOSTS=["*"])
 class InvitationTestCase(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         self.client = APIClient()
         self.inviter = CustomUser.objects.create_user(
             email="inviter@example.com",
@@ -104,6 +170,8 @@ class InvitationTestCase(TestCase):
         invite_token = inv_res.json()["token"]
 
         self.client.force_authenticate(user=None)
+        from django.core.cache import cache
+        cache.clear()
         reg_res_2 = self.client.post(
             "/api/accounts/register/",
             data={
@@ -122,5 +190,277 @@ class InvitationTestCase(TestCase):
         self.assertIsNotNone(invitation.invited_user)
         self.assertEqual(invitation.invited_user.email, "charlie@example.com")
         self.assertEqual(invitation.inviter, self.inviter)
+
+    def test_duplicate_email_registration_anti_enumeration(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        # Initial registration
+        reg1 = self.client.post(
+            "/api/accounts/register/",
+            data={
+                "full_name": "Original User",
+                "email": "original@example.com",
+                "password": "Password123!",
+                "confirm_password": "Password123!",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(reg1.status_code, status.HTTP_201_CREATED)
+
+        cache.clear()
+        # Duplicate registration attempt with existing email
+        reg2 = self.client.post(
+            "/api/accounts/register/",
+            data={
+                "full_name": "Attacker Impostor",
+                "email": "original@example.com",
+                "password": "Password123!",
+                "confirm_password": "Password123!",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(reg2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            reg2.json()["message"],
+            "Student account registered successfully. Please check your email to verify your account."
+        )
+        # Ensure only 1 user with that email exists in DB
+        self.assertEqual(CustomUser.objects.filter(email="original@example.com").count(), 1)
+
+    def test_rate_limiting_login(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        for i in range(1, 6):
+            res = self.client.post(
+                "/api/accounts/login/",
+                data={"email": "test_throttle@example.com", "password": "WrongPassword!"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 6th attempt should be throttled (5 per minute)
+        throttled_res = self.client.post(
+            "/api/accounts/login/",
+            data={"email": "test_throttle@example.com", "password": "WrongPassword!"},
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(throttled_res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_registration_burst_throttling(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        # 1st request passes
+        res1 = self.client.post(
+            "/api/accounts/register/",
+            data={
+                "full_name": "Burst User 1",
+                "email": "burst1@example.com",
+                "password": "Password123!",
+                "confirm_password": "Password123!",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        # 2nd request immediately within 4 seconds is burst-throttled
+        res2 = self.client.post(
+            "/api/accounts/register/",
+            data={
+                "full_name": "Burst User 2",
+                "email": "burst2@example.com",
+                "password": "Password123!",
+                "confirm_password": "Password123!",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(res2.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+
+
+@override_settings(ALLOWED_HOSTS=["*"])
+class PasswordStrengthValidationTestCase(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+        self.user = CustomUser.objects.create_user(
+            email="strength_user@example.com",
+            full_name="Strength User",
+            password="StrongPassword123!",
+            is_verified=True,
+        )
+
+    def test_registration_rejects_weak_password(self):
+        response = self.client.post(
+            "/api/accounts/register/",
+            data={
+                "full_name": "Weak User",
+                "email": "weak_user@example.com",
+                "password": "password",
+                "confirm_password": "password",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", response.json())
+
+    def test_change_password_rejects_weak_password(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            "/api/accounts/change-password/",
+            data={
+                "old_password": "StrongPassword123!",
+                "new_password": "password",
+                "confirm_password": "password",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("new_password", response.json())
+
+    def test_reset_password_rejects_weak_password(self):
+        uidb64 = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+
+        response = self.client.post(
+            f"/api/accounts/reset-password/?uid={uidb64}&token={token}",
+            data={
+                "new_password": "password",
+                "confirm_password": "password",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("new_password", response.json())
+
+    def test_complexity_validator_rejects_correcthorsebattery(self):
+        # Test register endpoint
+        reg_res = self.client.post(
+            "/api/accounts/register/",
+            data={
+                "full_name": "CHB User",
+                "email": "chb@example.com",
+                "password": "correcthorsebattery",
+                "confirm_password": "correcthorsebattery",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(reg_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            reg_res.json()["password"],
+            ["Password must contain at least one uppercase letter (A-Z)."]
+        )
+
+        # Test change-password endpoint
+        self.client.force_authenticate(user=self.user)
+        change_res = self.client.post(
+            "/api/accounts/change-password/",
+            data={
+                "old_password": "StrongPassword123!",
+                "new_password": "correcthorsebattery",
+                "confirm_password": "correcthorsebattery",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(change_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            change_res.json()["new_password"],
+            ["Password must contain at least one uppercase letter (A-Z)."]
+        )
+
+        # Test reset-password endpoint
+        self.client.force_authenticate(user=None)
+        uidb64 = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+
+        reset_res = self.client.post(
+            f"/api/accounts/reset-password/?uid={uidb64}&token={token}",
+            data={
+                "new_password": "correcthorsebattery",
+                "confirm_password": "correcthorsebattery",
+            },
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(reset_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            reset_res.json()["new_password"],
+            ["Password must contain at least one uppercase letter (A-Z)."]
+        )
+
+    def test_forgot_password_throttling(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        # Send 3 requests within 1 hour -> HTTP 200 OK
+        for i in range(1, 4):
+            res = self.client.post(
+                "/api/accounts/forgot-password/",
+                data={"email": "strength_user@example.com"},
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # 4th request within an hour -> HTTP 429 Too Many Requests
+        res4 = self.client.post(
+            "/api/accounts/forgot-password/",
+            data={"email": "strength_user@example.com"},
+            format="json",
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(res4.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_forgot_password_email_throttling_across_different_ips(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        target_email = "target_victim@example.com"
+        simulated_ips = ["192.168.1.1", "192.168.1.2", "192.168.1.3", "192.168.1.4"]
+
+        # Send 3 requests targeting the same email from 3 different IPs -> HTTP 200 OK
+        for i in range(3):
+            res = self.client.post(
+                "/api/accounts/forgot-password/",
+                data={"email": target_email},
+                format="json",
+                HTTP_HOST="localhost",
+                REMOTE_ADDR=simulated_ips[i],
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # 4th request targeting the same email from a 4th DIFFERENT IP -> HTTP 429 Too Many Requests
+        res4 = self.client.post(
+            "/api/accounts/forgot-password/",
+            data={"email": target_email},
+            format="json",
+            HTTP_HOST="localhost",
+            REMOTE_ADDR=simulated_ips[3],
+        )
+        self.assertEqual(res4.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+
+
+
 
 
