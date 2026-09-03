@@ -1,7 +1,8 @@
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.accounts.models import CustomUser
+from apps.accounts.models import CustomUser, ProviderProfile
 from apps.accounts.utils import format_phone_for_msg91
 
 
@@ -775,6 +776,128 @@ class PasswordStrengthValidationTestCase(TestCase):
             REMOTE_ADDR=simulated_ips[3],
         )
         self.assertEqual(res4.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+@override_settings(ALLOWED_HOSTS=["*"])
+class ProviderProfileTestCase(TestCase):
+    """
+    Test suite for provider registration, role validation, and ProviderProfile CRUD endpoints.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+        self.provider_user = CustomUser.objects.create_user(
+            email="provider@example.com",
+            password="Password123!",
+            full_name="Acme Corp Admin",
+            role=CustomUser.Role.PROVIDER,
+            is_verified=True,
+        )
+        self.student_user = CustomUser.objects.create_user(
+            email="student@example.com",
+            password="Password123!",
+            full_name="Regular Student",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.other_provider = CustomUser.objects.create_user(
+            email="otherprovider@example.com",
+            password="Password123!",
+            full_name="Other Provider",
+            role=CustomUser.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        self.provider_profile_url = reverse("accounts:provider-profile")
+        self.register_url = reverse("accounts:student-register")
+
+    def test_register_with_provider_role(self):
+        """Registering with role='provider' creates a CustomUser with role='provider'."""
+        payload = {
+            "email": "newprovider@example.com",
+            "full_name": "New Provider",
+            "password": "Password123!",
+            "confirm_password": "Password123!",
+            "role": "provider",
+        }
+        res = self.client.post(self.register_url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        new_user = CustomUser.objects.get(email="newprovider@example.com")
+        self.assertEqual(new_user.role, CustomUser.Role.PROVIDER)
+
+    def test_register_with_admin_role_rejected(self):
+        """Attempting to register with role='admin' is explicitly rejected with 400 Bad Request."""
+        payload = {
+            "email": "attacker@example.com",
+            "full_name": "Attacker",
+            "password": "Password123!",
+            "confirm_password": "Password123!",
+            "role": "admin",
+        }
+        res = self.client.post(self.register_url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("role", res.data)
+        self.assertFalse(CustomUser.objects.filter(email="attacker@example.com").exists())
+
+    def test_provider_can_get_and_update_own_profile(self):
+        """A provider user can view and update their own ProviderProfile."""
+        self.client.force_authenticate(user=self.provider_user)
+
+        # GET creates or fetches profile
+        get_res = self.client.get(self.provider_profile_url)
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_res.data["organization_name"], "Acme Corp Admin")
+
+        # PATCH updates profile
+        update_payload = {
+            "organization_name": "Acme Technologies Inc",
+            "organization_type": "startup",
+            "city": "Bangalore",
+            "website": "https://acme.example.com",
+            "description": "Building AI software.",
+        }
+        patch_res = self.client.patch(self.provider_profile_url, update_payload, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data["organization_name"], "Acme Technologies Inc")
+        self.assertEqual(patch_res.data["city"], "Bangalore")
+
+    def test_provider_cannot_self_verify_profile_via_api(self):
+        """Provider attempting to send is_verified=True via PATCH is ignored (remains False)."""
+        self.client.force_authenticate(user=self.provider_user)
+
+        patch_res = self.client.patch(
+            self.provider_profile_url,
+            {"organization_name": "Hack Corp", "is_verified": True},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertFalse(patch_res.data["is_verified"])
+        profile = ProviderProfile.objects.get(user=self.provider_user)
+        self.assertFalse(profile.is_verified)
+
+    def test_student_gets_403_on_provider_profile(self):
+        """A student account attempting to access /provider-profile/ gets 403 Forbidden."""
+        self.client.force_authenticate(user=self.student_user)
+        res = self.client.get(self.provider_profile_url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_provider_cannot_access_another_providers_profile(self):
+        """Provider only ever accesses their own profile (get_object resolves to request.user's profile)."""
+        # Create profile for other_provider first
+        ProviderProfile.objects.create(
+            user=self.other_provider,
+            organization_name="Other Provider Org",
+        )
+
+        # Authenticate as provider_user and request endpoint
+        self.client.force_authenticate(user=self.provider_user)
+        res = self.client.get(self.provider_profile_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertNotEqual(res.data["organization_name"], "Other Provider Org")
+        self.assertEqual(res.data["organization_name"], "Acme Corp Admin")
+
 
 
 

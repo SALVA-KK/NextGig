@@ -8,14 +8,14 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import CustomUser, PhoneOTP, Invitation
+from .models import CustomUser, PhoneOTP, Invitation, ProviderProfile
 from .utils import get_phone_lookup_variants, normalize_phone_number, verify_recaptcha_token
 
 
 class StudentRegistrationSerializer(serializers.ModelSerializer):
     """
-    Serializer for Student registration requests.
-    Enforces password validation, email/phone uniqueness, and automatically assigns the STUDENT role.
+    Serializer for Student and Provider registration requests.
+    Enforces password validation, email/phone uniqueness, and optional role assignment ('student' or 'provider').
     """
 
     email = serializers.EmailField(
@@ -32,6 +32,11 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             "required": "Full name is required.",
             "blank": "Full name cannot be blank.",
         },
+    )
+    role = serializers.CharField(
+        required=False,
+        default=CustomUser.Role.STUDENT,
+        help_text="Optional role selection ('student' or 'provider'). Defaults to 'student'.",
     )
     password = serializers.CharField(
         write_only=True,
@@ -73,12 +78,27 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             "email",
             "full_name",
             "phone_number",
+            "role",
             "password",
             "confirm_password",
             "invite_token",
             "recaptcha_token",
         )
         read_only_fields = ("id",)
+
+    def validate_role(self, value):
+        """
+        Validates optional role parameter. Only 'student' or 'provider' allowed.
+        Rejects 'admin' explicitly.
+        """
+        if not value:
+            return CustomUser.Role.STUDENT
+        val_str = str(value).strip().lower()
+        if val_str == CustomUser.Role.ADMIN:
+            raise serializers.ValidationError("Role 'admin' cannot be assigned via registration.")
+        if val_str not in [CustomUser.Role.STUDENT, CustomUser.Role.PROVIDER]:
+            raise serializers.ValidationError("Invalid role. Allowed roles are 'student' or 'provider'.")
+        return val_str
 
     def validate_email(self, value):
         """
@@ -135,7 +155,7 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """
-        Create and return a new Student user using CustomUserManager.create_user().
+        Create and return a new Student or Provider user using CustomUserManager.create_user().
         If user already exists, performs dummy password hashing for timing protection
         and marks self.is_duplicate = True without creating a duplicate record.
         """
@@ -146,8 +166,9 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         invite_token = validated_data.pop("invite_token", None)
         validated_data.pop("recaptcha_token", None)
 
-        # Automatically assign the STUDENT role internally
-        validated_data["role"] = CustomUser.Role.STUDENT
+        # Extract role ('student' or 'provider')
+        user_role = validated_data.pop("role", CustomUser.Role.STUDENT)
+        validated_data["role"] = user_role
 
         # Extract credentials for CustomUserManager.create_user
         email = validated_data.pop("email")
@@ -550,5 +571,30 @@ class PublicInvitationSerializer(serializers.Serializer):
     valid = serializers.BooleanField(help_text="Flag indicating whether invitation token is valid and active.")
     inviter = InviterPublicSerializer(required=False, help_text="Public inviter information if valid.")
     detail = serializers.CharField(required=False, help_text="Error message if token is invalid or expired.")
+
+
+class ProviderProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer for retrieving and updating Provider Profiles.
+    `is_verified` and `user` are strictly read-only.
+    """
+
+    class Meta:
+        model = ProviderProfile
+        fields = (
+            "id",
+            "organization_name",
+            "organization_type",
+            "description",
+            "contact_person",
+            "website",
+            "address",
+            "city",
+            "is_verified",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "is_verified", "created_at", "updated_at")
+
 
 

@@ -11,13 +11,13 @@ from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from .models import AdminMFA, CustomUser, PhoneOTP, Invitation
+from .models import AdminMFA, CustomUser, PhoneOTP, Invitation, ProviderProfile
 from .permissions import IsAdminRole
 from .serializers import (
     ChangePasswordSerializer,
@@ -26,6 +26,7 @@ from .serializers import (
     InvitationResponseSerializer,
     LoginSerializer,
     LogoutSerializer,
+    ProviderProfileSerializer,
     PublicInvitationSerializer,
     RequestOTPSerializer,
     ResetPasswordSerializer,
@@ -1217,6 +1218,41 @@ class InvitationDetailView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class IsProviderUser(BasePermission):
+    """
+    Permission check restricting access strictly to authenticated users with role='provider'.
+    """
+
+    message = "Only provider accounts can access the provider profile."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == CustomUser.Role.PROVIDER
+        )
+
+
+class ProviderProfileView(generics.RetrieveUpdateAPIView):
+    """
+    API endpoint for provider users to view and update their organization profile.
+    Only accessible by authenticated users with role='provider'.
+    """
+
+    serializer_class = ProviderProfileSerializer
+    permission_classes = [IsAuthenticated, IsProviderUser]
+
+    def get_object(self):
+        profile, created = ProviderProfile.objects.get_or_create(
+            user=self.request.user,
+            defaults={
+                "organization_name": self.request.user.full_name or "My Organization",
+            },
+        )
+        return profile
+
 
 
 

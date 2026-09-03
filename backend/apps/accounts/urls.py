@@ -16,6 +16,7 @@ from .views import (
     LogoutView,
     PhoneLoginRequestOTPView,
     PhoneLoginVerifyOTPView,
+    ProviderProfileView,
     RequestOTPView,
     ResetPasswordView,
     StudentRegistrationView,
@@ -96,6 +97,11 @@ urlpatterns = [
         "profile/",
         UserProfileView.as_view(),
         name="user-profile",
+    ),
+    path(
+        "provider-profile/",
+        ProviderProfileView.as_view(),
+        name="provider-profile",
     ),
     path(
         "admin/mfa/verify/",

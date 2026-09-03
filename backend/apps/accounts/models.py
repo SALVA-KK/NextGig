@@ -254,3 +254,56 @@ class Invitation(models.Model):
         return f"Invitation by {self.inviter.email} (token={self.token[:8]}..., is_used={self.is_used})"
 
 
+class ProviderProfile(models.Model):
+    """
+    Model representing an organization, company, or individual provider profile on NextGig.
+    Linked OneToOne with CustomUser where role='provider'.
+    """
+
+    class OrganizationType(models.TextChoices):
+        COMPANY = "company", _("Company")
+        STARTUP = "startup", _("Startup")
+        CAFE = "cafe", _("Cafe")
+        RESTAURANT = "restaurant", _("Restaurant")
+        SHOP = "shop", _("Shop")
+        NGO = "ngo", _("NGO")
+        EDUCATIONAL_INSTITUTION = "educational_institution", _("Educational Institution")
+        FREELANCER = "freelancer", _("Freelancer")
+        INDIVIDUAL = "individual", _("Individual")
+        EVENT_ORGANIZER = "event_organizer", _("Event Organizer")
+        OTHER = "other", _("Other")
+
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="provider_profile",
+    )
+    organization_name = models.CharField(max_length=200)
+    organization_type = models.CharField(
+        max_length=50,
+        choices=OrganizationType.choices,
+        default=OrganizationType.COMPANY,
+    )
+    description = models.TextField(blank=True)
+    contact_person = models.CharField(max_length=100, blank=True)
+    website = models.URLField(blank=True)
+    address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True, db_index=True)
+    is_verified = models.BooleanField(
+        default=False,
+        help_text=_("Admin verification flag for provider organization."),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "provider_profiles"
+        verbose_name = _("provider profile")
+        verbose_name_plural = _("provider profiles")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.organization_name} ({self.user.email})"
+
+
+
