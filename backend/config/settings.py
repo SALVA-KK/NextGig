@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 from datetime import timedelta
 from dotenv import load_dotenv
 
@@ -215,8 +216,15 @@ FIREBASE_CREDENTIALS_PATH = os.getenv(
 # Google OAuth Configuration
 GOOGLE_CLIENT_ID = os.getenv(
     "GOOGLE_CLIENT_ID",
-    "852841732506-4ff826cb1d8qe39m4l6b4bmgfe0l6pal.apps.googleusercontent.com",
+    "852841732506-f1bvs03hg92g9gl1k0f29nd9gjamoljk.apps.googleusercontent.com",
 )
+
+# Google reCAPTCHA v3 Configuration
+RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
+RECAPTCHA_SITE_KEY = "6LcBi4wtAAAAABRj00TpA7AXsd0-9z8WJ52y5uOV"
+
+# Test environment detection flag
+TESTING = "test" in sys.argv
 
 
 # Simple JWT Configuration

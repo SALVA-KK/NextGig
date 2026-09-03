@@ -20,6 +20,7 @@ const PUBLIC_ENDPOINTS = [
   '/accounts/verify-otp/',
   '/accounts/phone-login/request-otp/',
   '/accounts/phone-login/verify-otp/',
+  '/accounts/google-login/',
   '/accounts/admin/mfa/verify/',
 ];
 
@@ -101,11 +102,12 @@ export const authService = {
   /**
    * Authenticate user with Email + Password against Django REST backend (/api/accounts/login/)
    */
-  loginEmail: async (email, password) => {
+  loginEmail: async (email, password, recaptcha_token) => {
     try {
       const response = await api.post('/accounts/login/', {
         email,
         password,
+        recaptcha_token,
       });
 
       const data = response.data;
@@ -305,9 +307,9 @@ export const authService = {
   /**
    * Request password reset link via email (/api/accounts/forgot-password/)
    */
-  forgotPassword: async (email) => {
+  forgotPassword: async (email, recaptcha_token) => {
     try {
-      const response = await api.post('/accounts/forgot-password/', { email });
+      const response = await api.post('/accounts/forgot-password/', { email, recaptcha_token });
       return response.data;
     } catch (error) {
       if (!error.response) {
@@ -592,7 +594,7 @@ export const authService = {
   /**
    * Register a new Student/User account against Django REST backend (/api/accounts/register/)
    */
-  register: async ({ email, full_name, phone_number, password, confirm_password, invite_token }) => {
+  register: async ({ email, full_name, phone_number, password, confirm_password, invite_token, recaptcha_token }) => {
     try {
       const response = await api.post('/accounts/register/', {
         email,
@@ -601,6 +603,7 @@ export const authService = {
         password,
         confirm_password,
         invite_token: invite_token || undefined,
+        recaptcha_token,
       });
       return response.data;
     } catch (error) {

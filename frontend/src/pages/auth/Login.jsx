@@ -5,9 +5,12 @@ import { authService } from '../../services/authService';
 import { auth } from '../../firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { GoogleLogin } from '@react-oauth/google';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { getReCaptchaToken } from '../../utils/recaptcha';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { executeRecaptcha } = useGoogleReCaptcha();
 
   // Method state: 'email' | 'phone'
   const [method, setMethod] = useState('email');
@@ -59,10 +62,11 @@ export default function Login() {
 
   // Helper to redirect based on user role
   const redirectBasedOnRole = (user) => {
-    if (user?.role === 'admin') {
-      navigate('/admin/dashboard');
+    const role = user?.role || authService.getUserRole();
+    if (role === 'admin') {
+      navigate('/admin');
     } else {
-      navigate('/student/dashboard');
+      navigate('/dashboard');
     }
   };
 
@@ -110,7 +114,17 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const data = await authService.loginEmail(email.trim(), password);
+      const recaptchaToken = await getReCaptchaToken(executeRecaptcha, 'login');
+      if (!recaptchaToken) {
+        setMessage({
+          type: 'error',
+          text: 'Verification is taking longer than expected — please refresh and try again.',
+        });
+        setLoading(false);
+        return;
+      }
+
+      const data = await authService.loginEmail(email.trim(), password, recaptchaToken);
       setMessage({
         type: 'success',
         text: 'Login successful! Redirecting...',

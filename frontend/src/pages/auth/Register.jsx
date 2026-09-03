@@ -3,9 +3,12 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
 import { GoogleLogin } from '@react-oauth/google';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { getReCaptchaToken } from '../../utils/recaptcha';
 
 export default function Register() {
   const navigate = useNavigate();
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite') || '';
 
@@ -22,10 +25,11 @@ export default function Register() {
   const [registeredSuccess, setRegisteredSuccess] = useState(false);
 
   const redirectBasedOnRole = (user) => {
-    if (user?.role === 'admin') {
-      navigate('/admin/dashboard');
+    const role = user?.role || authService.getUserRole();
+    if (role === 'admin') {
+      navigate('/admin');
     } else {
-      navigate('/student/dashboard');
+      navigate('/dashboard');
     }
   };
 
@@ -80,6 +84,16 @@ export default function Register() {
     }
 
     try {
+      const recaptchaToken = await getReCaptchaToken(executeRecaptcha, 'register');
+      if (!recaptchaToken) {
+        setMessage({
+          type: 'error',
+          text: 'Verification is taking longer than expected — please refresh and try again.',
+        });
+        setLoading(false);
+        return;
+      }
+
       const data = await authService.register({
         full_name: fullName.trim(),
         email: email.trim(),
@@ -87,6 +101,7 @@ export default function Register() {
         password,
         confirm_password: confirmPassword,
         invite_token: inviteToken || undefined,
+        recaptcha_token: recaptchaToken,
       });
 
       setRegisteredSuccess(true);

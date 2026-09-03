@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
 import { authService } from '../../services/authService';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { getReCaptchaToken } from '../../utils/recaptcha';
 
 export default function ForgotPassword() {
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: string }
@@ -16,7 +19,17 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
-      const data = await authService.forgotPassword(email.trim());
+      const recaptchaToken = await getReCaptchaToken(executeRecaptcha, 'forgot_password');
+      if (!recaptchaToken) {
+        setMessage({
+          type: 'error',
+          text: 'Verification is taking longer than expected — please refresh and try again.',
+        });
+        setLoading(false);
+        return;
+      }
+
+      const data = await authService.forgotPassword(email.trim(), recaptchaToken);
       setMessage({
         type: 'success',
         text: data.message || 'If an account with that email exists, a password reset link has been sent to your inbox.',

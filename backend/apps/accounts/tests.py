@@ -292,6 +292,130 @@ class GoogleOAuthTestCase(TestCase):
             )
 
 
+@override_settings(ALLOWED_HOSTS=["*"])
+class ReCAPTCHAV3TestCase(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+        self.user = CustomUser.objects.create_user(
+            email="recaptcha_user@example.com",
+            full_name="ReCAPTCHA User",
+            password="StrongPassword123!",
+            is_verified=True,
+        )
+
+    def test_registration_blocked_when_recaptcha_fails(self):
+        from unittest.mock import patch
+
+        reg_data = {
+            "email": "new_recaptcha_student@example.com",
+            "full_name": "New Student",
+            "password": "StrongPassword123!",
+            "confirm_password": "StrongPassword123!",
+            "recaptcha_token": "failed_recaptcha_token",
+        }
+
+        with patch("apps.accounts.serializers.verify_recaptcha_token", return_value=False):
+            response = self.client.post(
+                "/api/accounts/register/",
+                data=reg_data,
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_registration_allowed_when_recaptcha_passes(self):
+        from unittest.mock import patch
+
+        reg_data = {
+            "email": "new_recaptcha_student_passed@example.com",
+            "full_name": "New Student",
+            "password": "StrongPassword123!",
+            "confirm_password": "StrongPassword123!",
+            "recaptcha_token": "valid_recaptcha_token",
+        }
+
+        with patch("apps.accounts.serializers.verify_recaptcha_token", return_value=True):
+            response = self.client.post(
+                "/api/accounts/register/",
+                data=reg_data,
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_login_blocked_when_recaptcha_fails(self):
+        from unittest.mock import patch
+
+        login_data = {
+            "email": "recaptcha_user@example.com",
+            "password": "StrongPassword123!",
+            "recaptcha_token": "failed_token",
+        }
+
+        with patch("apps.accounts.serializers.verify_recaptcha_token", return_value=False):
+            response = self.client.post(
+                "/api/accounts/login/",
+                data=login_data,
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_allowed_when_recaptcha_passes(self):
+        from unittest.mock import patch
+
+        login_data = {
+            "email": "recaptcha_user@example.com",
+            "password": "StrongPassword123!",
+            "recaptcha_token": "valid_token",
+        }
+
+        with patch("apps.accounts.serializers.verify_recaptcha_token", return_value=True):
+            response = self.client.post(
+                "/api/accounts/login/",
+                data=login_data,
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_forgot_password_blocked_when_recaptcha_fails(self):
+        from unittest.mock import patch
+
+        forgot_data = {
+            "email": "recaptcha_user@example.com",
+            "recaptcha_token": "failed_token",
+        }
+
+        with patch("apps.accounts.serializers.verify_recaptcha_token", return_value=False):
+            response = self.client.post(
+                "/api/accounts/forgot-password/",
+                data=forgot_data,
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_forgot_password_allowed_when_recaptcha_passes(self):
+        from unittest.mock import patch
+
+        forgot_data = {
+            "email": "recaptcha_user@example.com",
+            "recaptcha_token": "valid_token",
+        }
+
+        with patch("apps.accounts.serializers.verify_recaptcha_token", return_value=True):
+            response = self.client.post(
+                "/api/accounts/forgot-password/",
+                data=forgot_data,
+                format="json",
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 from apps.accounts.models import Invitation
 
 

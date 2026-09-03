@@ -742,6 +742,7 @@ class GoogleLoginView(APIView):
     API endpoint that authenticates or auto-registers a user using Google OAuth 2.0 ID Token.
     """
 
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_scope = "login"
 
@@ -759,6 +760,7 @@ class GoogleLoginView(APIView):
         serializer.is_valid(raise_exception=True)
 
         id_token_str = serializer.validated_data["id_token"]
+        print(f"[GOOGLE_LOGIN_VIEW] Verifying token. Current settings.GOOGLE_CLIENT_ID = {getattr(settings, 'GOOGLE_CLIENT_ID', None)}")
         google_user = verify_google_id_token(id_token_str)
 
         if not google_user or not google_user.get("email"):

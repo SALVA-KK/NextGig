@@ -19,8 +19,9 @@ def verify_google_id_token(token):
     client_id = getattr(
         settings,
         "GOOGLE_CLIENT_ID",
-        "852841732506-4ff826cb1d8qe39m4l6b4bmgfe0l6pal.apps.googleusercontent.com",
+        "852841732506-f1bvs03hg92g9gl1k0f29nd9gjamoljk.apps.googleusercontent.com",
     )
+    logger.info("[GOOGLE_OAUTH_AUDIENCE] Verifying Google ID token with audience: %s", client_id)
 
     try:
         id_info = id_token.verify_oauth2_token(
@@ -44,8 +45,10 @@ def verify_google_id_token(token):
             "google_id": id_info.get("sub"),
         }
     except ValueError as exc:
-        logger.warning("Google ID token verification failed: %s", exc)
+        logger.warning("[GOOGLE_OAUTH_VERIFY_FAILURE] ValueError: %s | audience=%s", exc, client_id)
+        print(f"[GOOGLE_OAUTH_EXACT_ERROR] ValueError: {exc} | Audience used: {client_id}")
         return None
     except Exception as exc:
-        logger.error("Unexpected exception during Google ID token verification: %s", exc)
+        logger.error("[GOOGLE_OAUTH_VERIFY_FAILURE] Exception (%s): %s | audience=%s", type(exc).__name__, exc, client_id)
+        print(f"[GOOGLE_OAUTH_EXACT_ERROR] Exception ({type(exc).__name__}): {exc} | Audience used: {client_id}")
         return None

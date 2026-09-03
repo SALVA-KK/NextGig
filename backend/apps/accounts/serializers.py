@@ -9,7 +9,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser, PhoneOTP, Invitation
-from .utils import get_phone_lookup_variants, normalize_phone_number
+from .utils import get_phone_lookup_variants, normalize_phone_number, verify_recaptcha_token
 
 
 class StudentRegistrationSerializer(serializers.ModelSerializer):
@@ -59,6 +59,12 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="Optional invitation token to link registration with inviter.",
     )
+    recaptcha_token = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Google reCAPTCHA v3 response token.",
+    )
 
     class Meta:
         model = CustomUser
@@ -70,6 +76,7 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             "password",
             "confirm_password",
             "invite_token",
+            "recaptcha_token",
         )
         read_only_fields = ("id",)
 
@@ -100,8 +107,12 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """
-        Cross-field validation for password matching and Django password policy enforcement.
+        Cross-field validation for password matching, reCAPTCHA v3 verification, and Django password policy enforcement.
         """
+        recaptcha_token = attrs.get("recaptcha_token")
+        if not verify_recaptcha_token(recaptcha_token):
+            raise serializers.ValidationError("Verification failed, please try again.")
+
         password = attrs.get("password")
         confirm_password = attrs.get("confirm_password")
 
@@ -131,8 +142,9 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         # Remove confirm_password field as it is only needed for validation
         validated_data.pop("confirm_password", None)
 
-        # Extract optional invite token
+        # Extract optional invite token and recaptcha token
         invite_token = validated_data.pop("invite_token", None)
+        validated_data.pop("recaptcha_token", None)
 
         # Automatically assign the STUDENT role internally
         validated_data["role"] = CustomUser.Role.STUDENT
@@ -194,11 +206,21 @@ class LoginSerializer(serializers.Serializer):
         },
         help_text="Account password.",
     )
+    recaptcha_token = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Google reCAPTCHA v3 response token.",
+    )
 
     def validate(self, attrs):
         """
-        Validates login credentials, authenticates the user, and enforces account status rules.
+        Validates login credentials, reCAPTCHA v3 token, authenticates the user, and enforces account status rules.
         """
+        recaptcha_token = attrs.get("recaptcha_token")
+        if not verify_recaptcha_token(recaptcha_token):
+            raise serializers.ValidationError("Verification failed, please try again.")
+
         email = attrs.get("email", "").strip().lower()
         attrs["email"] = email
         password = attrs.get("password")
@@ -299,13 +321,25 @@ class ChangePasswordSerializer(serializers.Serializer):
 class ForgotPasswordSerializer(serializers.Serializer):
     """
     Serializer for password reset requests via email.
-    Normalizes input email format without revealing user existence.
+    Normalizes input email format and validates reCAPTCHA v3 token without revealing user existence.
     """
 
     email = serializers.EmailField(
         required=True,
         help_text="Registered email address for password reset instructions.",
     )
+    recaptcha_token = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Google reCAPTCHA v3 response token.",
+    )
+
+    def validate(self, attrs):
+        recaptcha_token = attrs.get("recaptcha_token")
+        if not verify_recaptcha_token(recaptcha_token):
+            raise serializers.ValidationError("Verification failed, please try again.")
+        return attrs
 
     def validate_email(self, value):
         """
