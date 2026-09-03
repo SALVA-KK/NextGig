@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
 
     "rest_framework",
     "drf_spectacular",
@@ -54,6 +55,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
 
     "apps.accounts",
+    "apps.opportunities",
 ]
 
 # Custom User Model definition
@@ -168,6 +170,7 @@ REST_FRAMEWORK = {
         "register_sustained": "20/hour",
         "forgot_password_ip": "3/hour",
         "forgot_password_email": "3/hour",
+        "opportunity_create": "10/hour",
     },
 }
 
