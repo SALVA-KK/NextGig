@@ -24,12 +24,24 @@ export default function Register() {
   const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: string }
   const [registeredSuccess, setRegisteredSuccess] = useState(false);
 
+  // Auto-redirect already-authenticated users away from /register
+  React.useEffect(() => {
+    if (authService.isAuthenticated()) {
+      const role = authService.getUserRole();
+      if (role === 'admin') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [navigate]);
+
   const redirectBasedOnRole = (user) => {
     const role = user?.role || authService.getUserRole();
     if (role === 'admin') {
-      navigate('/admin');
+      navigate('/admin', { replace: true });
     } else {
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     }
   };
 
@@ -42,7 +54,7 @@ export default function Register() {
       const data = await authService.loginGoogle(credentialResponse.credential);
       if (data.mfa_required && data.mfa_token) {
         sessionStorage.setItem('admin_mfa_token', data.mfa_token);
-        navigate('/admin/mfa-verify');
+        navigate('/admin/mfa-verify', { replace: true });
         return;
       }
       setMessage({

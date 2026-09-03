@@ -14,7 +14,7 @@ export default function AdminMFAChallenge() {
 
   useEffect(() => {
     if (!mfaToken && !isSuccessRef.current) {
-      navigate('/login');
+      navigate('/login', { replace: true });
     }
   }, [mfaToken, navigate]);
 
@@ -29,7 +29,7 @@ export default function AdminMFAChallenge() {
       await authService.verifyAdminMFA(mfaToken, otpCode.trim());
       isSuccessRef.current = true;
       sessionStorage.removeItem('admin_mfa_token');
-      navigate('/admin');
+      navigate('/admin', { replace: true });
     } catch (err) {
       setMessage({
         type: 'error',

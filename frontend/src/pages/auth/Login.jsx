@@ -40,6 +40,18 @@ export default function Login() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
+  // Auto-redirect already-authenticated users away from /login
+  useEffect(() => {
+    if (authService.isAuthenticated()) {
+      const role = authService.getUserRole();
+      if (role === 'admin') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [navigate]);
+
   // Clean up RecaptchaVerifier on unmount
   useEffect(() => {
     return () => {
@@ -63,10 +75,13 @@ export default function Login() {
   // Helper to redirect based on user role
   const redirectBasedOnRole = (user) => {
     const role = user?.role || authService.getUserRole();
+    console.log('[LOGIN DIAGNOSTIC] redirectBasedOnRole computed role:', role);
     if (role === 'admin') {
-      navigate('/admin');
+      console.log('[LOGIN DIAGNOSTIC] Navigating to /admin with replace: true');
+      navigate('/admin', { replace: true });
     } else {
-      navigate('/dashboard');
+      console.log('[LOGIN DIAGNOSTIC] Navigating to /dashboard with replace: true');
+      navigate('/dashboard', { replace: true });
     }
   };
 
@@ -80,7 +95,7 @@ export default function Login() {
       const data = await authService.loginGoogle(credentialResponse.credential);
       if (data.mfa_required && data.mfa_token) {
         sessionStorage.setItem('admin_mfa_token', data.mfa_token);
-        navigate('/admin/mfa-verify');
+        navigate('/admin/mfa-verify', { replace: true });
         return;
       }
       setMessage({
@@ -125,12 +140,24 @@ export default function Login() {
       }
 
       const data = await authService.loginEmail(email.trim(), password, recaptchaToken);
+      console.log('[LOGIN DIAGNOSTIC] handleEmailSubmit success response:', data);
+
+      if (data?.mfa_required && data?.mfa_token) {
+        console.log('[LOGIN DIAGNOSTIC] MFA required for admin login. Navigating to /admin/mfa-verify');
+        sessionStorage.setItem('admin_mfa_token', data.mfa_token);
+        navigate('/admin/mfa-verify', { replace: true });
+        return;
+      }
+
       setMessage({
         type: 'success',
         text: 'Login successful! Redirecting...',
       });
+
+      console.log('[LOGIN DIAGNOSTIC] Executing redirectBasedOnRole with user:', data?.user);
       redirectBasedOnRole(data?.user);
     } catch (err) {
+      console.error('[LOGIN DIAGNOSTIC] handleEmailSubmit caught error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Login failed. Please check your credentials.',
@@ -210,7 +237,7 @@ export default function Login() {
 
       if (data.mfa_required && data.mfa_token) {
         sessionStorage.setItem('admin_mfa_token', data.mfa_token);
-        navigate('/admin/mfa-verify');
+        navigate('/admin/mfa-verify', { replace: true });
         return;
       }
 
