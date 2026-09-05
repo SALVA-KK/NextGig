@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Opportunity
+from .models import Opportunity, SavedOpportunity
 
 User = get_user_model()
 
@@ -131,3 +131,20 @@ class OpportunityCreateUpdateSerializer(serializers.ModelSerializer):
         if value is not None and value < 0:
             raise serializers.ValidationError("Pay amount cannot be negative.")
         return value
+
+
+class SavedOpportunitySerializer(serializers.ModelSerializer):
+    """
+    Serializer for saved/bookmarked opportunities.
+    Nests the OpportunityListSerializer representation and exposes saved_at timestamp.
+    `user` is never client-writable.
+    """
+
+    opportunity = OpportunityListSerializer(read_only=True)
+    saved_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = SavedOpportunity
+        fields = ("id", "opportunity", "saved_at")
+        read_only_fields = ("id", "opportunity", "saved_at")
+

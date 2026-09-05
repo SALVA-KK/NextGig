@@ -97,3 +97,32 @@ class Opportunity(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.get_category_display()}) - {self.status}"
+
+
+class SavedOpportunity(models.Model):
+    """
+    Model representing a bookmarked/saved opportunity by a user.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="saved_opportunities",
+        on_delete=models.CASCADE,
+    )
+    opportunity = models.ForeignKey(
+        Opportunity,
+        related_name="saved_by",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "saved_opportunities"
+        verbose_name = _("saved opportunity")
+        verbose_name_plural = _("saved opportunities")
+        unique_together = ("user", "opportunity")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.email} saved '{self.opportunity.title}'"
+

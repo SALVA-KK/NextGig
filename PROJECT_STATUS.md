@@ -18,15 +18,16 @@
    - Registered `ProviderProfile` in Django Admin with editable `is_verified` list view for administrator verification.
    - Applied migration `0005_providerprofile`.
 
-3. **`opportunities` Django App**:
-   - Built and registered the `opportunities` Django app (`apps.opportunities`) with full CRUD REST APIs.
-   - Implemented `Opportunity` model in [`backend/apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py) featuring `ArrayField` required skills, pay types, work modes, vacancies, location, deadline, status, ordering by `-created_at`, and a compound index on `(status, category, city)`.
-   - Built lightweight list, detail, and create/update serializers in [`serializers.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/serializers.py) with validation for non-past deadlines, positive vacancies, and non-negative pay amounts.
+3. **`opportunities` Django App & Saved Opportunities**:
+   - Built and registered the `opportunities` Django app (`apps.opportunities`) with full CRUD REST APIs and Bookmarking.
+   - Implemented `Opportunity` model in [`backend/apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py) featuring `ArrayField` required skills, pay types, work modes, vacancies, location, deadline, status, ordering by `-created_at`, and compound index on `(status, category, city)`.
+   - Implemented `SavedOpportunity` model (`user`, `opportunity`, `created_at`, `unique_together = ('user', 'opportunity')`, ordering by `-created_at`).
+   - Built serializers (`OpportunityListSerializer`, `OpportunityDetailSerializer`, `OpportunityCreateUpdateSerializer`, and `SavedOpportunitySerializer` nesting opportunity details and `saved_at`).
    - Built permissions (`IsVerifiedUser`, `IsOwnerOrReadOnly`) in [`permissions.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/permissions.py).
-   - Implemented DRF generic views in [`views.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/views.py) with pagination (`page_size=20`), `opportunity_create` rate throttling (`10/hour`), and query filtering (`category`, `work_mode`, `city`, `status`).
-   - Registered Django admin interface in [`admin.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/admin.py).
-   - Applied migration `0001_initial`.
-   - Test suite total: **45 passed unit tests** across `accounts` and `opportunities`.
+   - Implemented DRF generic and API views: `OpportunityListCreateView`, `OpportunityDetailView`, `OpportunitySaveView` (`POST`/`DELETE /api/opportunities/<id>/save/`), and `SavedOpportunityListView` (`GET /api/saved-opportunities/`).
+   - Registered Django admin interfaces for `Opportunity` and `SavedOpportunity`.
+   - Applied migrations `0001_initial` and `0002_savedopportunity`.
+   - Test suite total: **52 passed unit tests** across `accounts` and `opportunities`.
 
 ---
 
@@ -60,7 +61,7 @@
 - **`backend/`**:
   - **`config/`**: Core project settings ([`settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py)), URL router ([`urls.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/urls.py)), WSGI ([`wsgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/wsgi.py)), and ASGI ([`asgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/asgi.py)) entrypoints.
   - **`apps/accounts/`**: Manages custom user authentication, email verification, password reset, MSG91 SMS fallback, Firebase Phone Auth, Google OAuth, TOTP Admin MFA, user profiles, provider profiles, and invitation links.
-  - **`apps/opportunities/`**: Manages opportunity listings, CRUD REST APIs, category/work-mode/city query filtering, owner/admin permissions, and creation throttling.
+  - **`apps/opportunities/`**: Manages opportunity listings, CRUD REST APIs, saved opportunities (bookmarking), category/work-mode/city query filtering, owner/admin permissions, and creation throttling.
 - **`frontend/`**:
   - **`src/components/`**: Reusable UI components grouped by feature ([`auth/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/auth), [`dashboard/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/dashboard), [`home/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/home), [`profile/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile)).
   - **`src/pages/`**: Top-level page views ([`auth/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/auth), [`dashboard/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/dashboard), [`admin/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/admin), [`profile/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/profile), [`Home.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/Home.jsx)).
@@ -102,6 +103,9 @@
 - **`Opportunity`** (table `opportunities` in [`apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py)):
   - Fields: `id`, `poster` (FK to `CustomUser`, related_name `'posted_opportunities'`), `title`, `description`, `category` (choices: `part_time`, `internship`, `freelance`, `startup_hiring`, `project_collaboration`, `tutoring`, `volunteer`, `event_based`), `required_skills` (`ArrayField`), `pay_type` (choices: `hourly`, `monthly`, `stipend`, `unpaid`), `pay_amount`, `duration`, `working_hours`, `work_mode` (choices: `remote`, `onsite`, `hybrid`), `location_text`, `city` (db_index), `latitude`, `longitude`, `vacancies`, `deadline`, `contact_info`, `status` (choices: `open`, `closed`, `draft`, default `'open'`), `created_at`, `updated_at`.
   - Indexes: Ordering by `-created_at`, compound index `opp_status_cat_city_idx` on `(status, category, city)`.
+- **`SavedOpportunity`** (table `saved_opportunities` in [`apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py)):
+  - Fields: `id`, `user` (FK to `CustomUser`, related_name `'saved_opportunities'`, on_delete=CASCADE), `opportunity` (FK to `Opportunity`, related_name `'saved_by'`, on_delete=CASCADE), `created_at`.
+  - Meta: `unique_together = ('user', 'opportunity')`, ordering by `-created_at`.
 
 ---
 
@@ -137,6 +141,9 @@
   - `POST /api/opportunities/` - Create opportunity (gated by `IsAuthenticated` + `IsVerifiedUser`, throttled at `10/hour`)
   - `GET /api/opportunities/<id>/` - Public detail view
   - `PUT / PATCH / DELETE /api/opportunities/<id>/` - Update/Delete (gated by `IsOwnerOrReadOnly`: poster or admin only)
+  - `POST /api/opportunities/<id>/save/` - Save/bookmark an opportunity (gated by `IsAuthenticated` + `IsVerifiedUser`, idempotent)
+  - `DELETE /api/opportunities/<id>/save/` - Unsave/remove bookmark from an opportunity (gated by `IsAuthenticated`)
+  - `GET /api/saved-opportunities/` - Retrieve paginated list of authenticated user's saved opportunities (gated by `IsAuthenticated`, page_size=20)
 - **Module: Documentation (`/api/`)**:
   - `GET /admin/` - Django Admin interface
   - `GET /api/schema/` - OpenAPI 3 Schema
@@ -148,13 +155,14 @@
 ### 6. FEATURES STATUS
 
 - **Student registration & profile**: **Done**
-- **Provider registration & profile**: **Done** (`role="provider"` registration, `ProviderProfile` model, `ProviderProfileSerializer`, `ProviderProfileView`, `IsProviderUser` permission, Django admin list_editable verification)
-- **Opportunity CRUD**: **Done** (Model, serializers, permissions, generic views, pagination, rate throttling, admin, unit tests)
+- **Provider registration & profile**: **Done**
+- **Opportunity CRUD**: **Done**
+- **Saved opportunities (bookmarking)**: **Done** (`SavedOpportunity` model, `SavedOpportunitySerializer`, `OpportunitySaveView`, `SavedOpportunityListView`, user isolation, idempotent saving, CASCADE cleanup, unit tests)
 - **Search & filters**: **Partially Done** (Query param filtering on `category`, `work_mode`, `city`, and `status` in `/api/opportunities/`)
 - **Location-based search**: **Not Started** (Geo-distance calculation/bounding box queries not implemented)
 - **Resume upload**: **Not Started**
 - **Applications (apply/withdraw/track status)**: **Not Started**
-- **Saved opportunities**: **Not Started**
+- **Saved opportunities**: **Done**
 - **Reviews/ratings**: **Not Started**
 - **Notifications**: **Not Started**
 - **Direct contact / messaging**: **Not Started**
@@ -168,9 +176,9 @@
 - **Docker**: **Not implemented**
 - **Unit Tests**:
   - Test suites: [`apps/accounts/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/tests.py) and [`apps/opportunities/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tests.py).
-  - Total tests: **45 unit tests passed** (`python manage.py test apps.accounts.tests apps.opportunities.tests`).
-  - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, and Opportunity CRUD permissions/validation/filtering.
-- **Pagination**: Implemented on `opportunities` list endpoint (`OpportunityPagination`, `page_size=20`, `max_page_size=100`).
+  - Total tests: **52 unit tests passed** (`python manage.py test apps.accounts.tests apps.opportunities.tests`).
+  - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, and Saved Opportunity bookmarking/isolation/idempotency/CASCADE.
+- **Pagination**: Implemented on `opportunities` list endpoint and `saved-opportunities` list endpoint (`OpportunityPagination`, `page_size=20`, `max_page_size=100`).
 
 ---
 

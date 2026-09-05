@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Opportunity
+from .models import Opportunity, SavedOpportunity
 
 User = get_user_model()
 
@@ -250,4 +250,124 @@ class OpportunityAPITests(APITestCase):
         # Passing status=all returns all 3
         resp_all = self.client.get(f"{self.list_create_url}?status=all")
         self.assertEqual(resp_all.data["count"], 3)
+
+
+class SavedOpportunityTests(APITestCase):
+    """
+    Test suite for Saved Opportunities (bookmarking) feature.
+    """
+
+    def setUp(self):
+        self.verified_user = User.objects.create_user(
+            email="saver@example.com",
+            password="Password123!",
+            full_name="Verified Saver",
+            is_verified=True,
+        )
+
+        self.unverified_user = User.objects.create_user(
+            email="unverifiedsaver@example.com",
+            password="Password123!",
+            full_name="Unverified Saver",
+            is_verified=False,
+        )
+
+        self.other_user = User.objects.create_user(
+            email="othersaver@example.com",
+            password="Password123!",
+            full_name="Other Saver",
+            is_verified=True,
+        )
+
+        self.opportunity1 = Opportunity.objects.create(
+            poster=self.verified_user,
+            title="Python Backend Gig",
+            description="Build Django REST APIs",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            pay_amount=50.00,
+            status=Opportunity.Status.OPEN,
+        )
+
+        self.opportunity2 = Opportunity.objects.create(
+            poster=self.verified_user,
+            title="UI/UX Designer",
+            description="Design Figma prototypes",
+            category=Opportunity.Category.PROJECT_COLLABORATION,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.STIPEND,
+            pay_amount=800.00,
+            status=Opportunity.Status.OPEN,
+        )
+
+        self.save_url1 = reverse("opportunities:opportunity-save", kwargs={"pk": self.opportunity1.pk})
+        self.save_url2 = reverse("opportunities:opportunity-save", kwargs={"pk": self.opportunity2.pk})
+        self.saved_list_url = "/api/saved-opportunities/"
+
+    def test_verified_user_can_save_opportunity(self):
+        """Verified user can save an opportunity (returns 201 Created)."""
+        self.client.force_authenticate(user=self.verified_user)
+        response = self.client.post(self.save_url1)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["message"], "Opportunity saved successfully.")
+        self.assertTrue(SavedOpportunity.objects.filter(user=self.verified_user, opportunity=self.opportunity1).exists())
+
+    def test_saving_same_opportunity_twice_is_idempotent(self):
+        """Saving the same opportunity twice is idempotent (returns 200 OK, no duplicate database record)."""
+        self.client.force_authenticate(user=self.verified_user)
+        res1 = self.client.post(self.save_url1)
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        res2 = self.client.post(self.save_url1)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.data["message"], "Opportunity is already saved.")
+        self.assertEqual(SavedOpportunity.objects.filter(user=self.verified_user, opportunity=self.opportunity1).count(), 1)
+
+    def test_unverified_user_cannot_save_opportunity(self):
+        """Unverified user gets 403 Forbidden when trying to save an opportunity."""
+        self.client.force_authenticate(user=self.unverified_user)
+        response = self.client.post(self.save_url1)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(SavedOpportunity.objects.count(), 0)
+
+    def test_user_can_unsave_saved_opportunity(self):
+        """User can unsave a previously saved opportunity (returns 200 OK)."""
+        self.client.force_authenticate(user=self.verified_user)
+        self.client.post(self.save_url1)
+        self.assertEqual(SavedOpportunity.objects.count(), 1)
+
+        unsave_resp = self.client.delete(self.save_url1)
+        self.assertEqual(unsave_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(unsave_resp.data["message"], "Opportunity unsaved successfully.")
+        self.assertEqual(SavedOpportunity.objects.count(), 0)
+
+    def test_unsaving_never_saved_opportunity_returns_404(self):
+        """Unsaving an opportunity that was never saved returns 404 Not Found."""
+        self.client.force_authenticate(user=self.verified_user)
+        response = self.client.delete(self.save_url1)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_saved_opportunities_list_user_isolation(self):
+        """GET /api/saved-opportunities/ returns only the authenticated user's own saved opportunities."""
+        # Save opp1 for verified_user and opp2 for other_user
+        SavedOpportunity.objects.create(user=self.verified_user, opportunity=self.opportunity1)
+        SavedOpportunity.objects.create(user=self.other_user, opportunity=self.opportunity2)
+
+        # Authenticate as verified_user
+        self.client.force_authenticate(user=self.verified_user)
+        response = self.client.get(self.saved_list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["opportunity"]["title"], "Python Backend Gig")
+
+    def test_deleting_opportunity_cascades_saved_opportunity(self):
+        """Deleting an Opportunity automatically deletes all SavedOpportunity records pointing to it."""
+        SavedOpportunity.objects.create(user=self.verified_user, opportunity=self.opportunity1)
+        SavedOpportunity.objects.create(user=self.other_user, opportunity=self.opportunity1)
+        self.assertEqual(SavedOpportunity.objects.count(), 2)
+
+        self.opportunity1.delete()
+        self.assertEqual(SavedOpportunity.objects.count(), 0)
+
 
