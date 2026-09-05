@@ -36,6 +36,7 @@ export default function ChangePasswordCard() {
       setConfirmPassword('');
       setShowForm(false);
     } catch (err) {
+      console.error('[ChangePasswordCard] handleSubmit error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Failed to change password.',

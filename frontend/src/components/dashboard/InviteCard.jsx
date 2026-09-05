@@ -20,6 +20,7 @@ export default function InviteCard() {
         setError('Failed to generate invitation link.');
       }
     } catch (err) {
+      console.error('[InviteCard] handleGenerateInvite error:', err);
       setError(err.message || 'Error generating invitation link.');
     } finally {
       setLoading(false);
@@ -33,6 +34,7 @@ export default function InviteCard() {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 3000);
     } catch (err) {
+      console.error('[InviteCard] handleCopyLink error:', err);
       setError('Failed to copy to clipboard.');
     }
   };
@@ -46,6 +48,7 @@ export default function InviteCard() {
         url: inviteUrl,
       });
     } catch (err) {
+      console.error('[InviteCard] handleShareLink error:', err);
       // User cancelled share or browser error
     }
   };

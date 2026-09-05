@@ -31,6 +31,7 @@ export default function AdminMFAChallenge() {
       sessionStorage.removeItem('admin_mfa_token');
       navigate('/admin', { replace: true });
     } catch (err) {
+      console.error('[AdminMFAChallenge] MFA verify error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Invalid verification code or recovery code.',

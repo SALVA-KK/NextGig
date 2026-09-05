@@ -23,6 +23,7 @@ export default function AdminMFASetup() {
       const res = await authService.getAdminMFAStatus();
       setMfaEnabled(res.is_enabled);
     } catch (err) {
+      console.error('[AdminMFASetup] checkMFAStatus error:', err);
       setMfaEnabled(false);
     } finally {
       setStatusLoading(false);
@@ -36,6 +37,7 @@ export default function AdminMFASetup() {
       const data = await authService.setupAdminMFA();
       setSetupData(data);
     } catch (err) {
+      console.error('[AdminMFASetup] handleStartSetup error:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to start MFA setup.' });
     } finally {
       setLoading(false);
@@ -56,6 +58,7 @@ export default function AdminMFASetup() {
       setSetupData(null);
       setConfirmCode('');
     } catch (err) {
+      console.error('[AdminMFASetup] handleConfirmSetup error:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to confirm MFA code.' });
     } finally {
       setLoading(false);
@@ -76,6 +79,7 @@ export default function AdminMFASetup() {
       setDisablePassword('');
       setDisableCode('');
     } catch (err) {
+      console.error('[AdminMFASetup] handleDisableMFA error:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to disable MFA.' });
     } finally {
       setLoading(false);

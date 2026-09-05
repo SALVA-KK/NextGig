@@ -16,7 +16,7 @@ export default function InvitePage() {
     async function checkInvitation() {
       if (!token) {
         setValid(false);
-        setErrorMsg('No invitation token provided.');
+        setErrorMsg('Invalid or missing invitation link.');
         setLoading(false);
         return;
       }
@@ -31,6 +31,7 @@ export default function InvitePage() {
           setErrorMsg(data.detail || 'This invitation link is invalid or has expired.');
         }
       } catch (err) {
+        console.error('[InvitePage] checkInvitation error:', err);
         setValid(false);
         setErrorMsg(err.message || 'Unable to verify invitation link.');
       } finally {

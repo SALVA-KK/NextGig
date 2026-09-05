@@ -104,6 +104,7 @@ export default function Login() {
       });
       redirectBasedOnRole(data?.user);
     } catch (err) {
+      console.error('[Login] Google login error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Google authentication failed.',
@@ -206,9 +207,10 @@ export default function Login() {
         }
         window.recaptchaVerifier = null;
       }
+      console.error('[Login] handleSendOtp error:', err);
       setMessage({
         type: 'error',
-        text: err.message || 'Failed to send SMS OTP via Firebase. Please check phone format or try again.',
+        text: err.message || 'Failed to send verification code. Please check your phone number or try again.',
       });
     } finally {
       setPhoneLoading(false);
@@ -247,6 +249,7 @@ export default function Login() {
       });
       redirectBasedOnRole(data?.user);
     } catch (err) {
+      console.error('[Login] Verify OTP error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Invalid or expired OTP token.',

@@ -24,7 +24,7 @@ export default function VerifyEmail() {
       setLoading(false);
       setStatus({
         type: 'error',
-        text: 'Invalid verification link. Both user ID (uid) and token are required.',
+        text: 'Invalid verification link. Please check the link or request a new verification email.',
       });
       return;
     }
@@ -38,6 +38,7 @@ export default function VerifyEmail() {
           text: data.message || 'Email verified successfully! You can now log in to your NextGig account.',
         });
       } catch (err) {
+        console.error('[VerifyEmail] performVerification error:', err);
         setStatus({
           type: 'error',
           text: err.message || 'Invalid or expired verification link. Please request a new verification link.',

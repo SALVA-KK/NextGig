@@ -36,6 +36,7 @@ export default function ForgotPassword() {
       });
       setEmail('');
     } catch (err) {
+      console.error('[ForgotPassword] Submit error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Failed to request password reset. Please try again.',

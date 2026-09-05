@@ -43,15 +43,27 @@ api.interceptors.request.use((config) => {
  * Helper to extract human-readable error text from DRF error response payloads.
  * Handles strings, arrays, field error objects ({ email: [...], password: [...] }), and nested errors.
  */
-const formatErrorResponse = (data, defaultFallback = 'An error occurred. Please try again.', status = null) => {
+const formatErrorResponse = (data, defaultFallback = 'Something went wrong. Please try again.', status = null) => {
+  if (status === 401) {
+    return 'Your session has expired. Please log in again.';
+  }
   if (status === 429) {
     return 'Too many attempts — please wait a moment and try again.';
+  }
+  if (status && status >= 500) {
+    return 'Something went wrong on our end. Please try again shortly.';
   }
   if (!data) return defaultFallback;
 
   if (typeof data === 'string') {
     if (data.toLowerCase().includes('throttled')) {
       return 'Too many attempts — please wait a moment and try again.';
+    }
+    if (data.includes('<!DOCTYPE html>') || data.includes('Traceback') || data.toLowerCase().includes('server error')) {
+      return 'Something went wrong on our end. Please try again shortly.';
+    }
+    if (/backend|server running|localhost|connection refused/i.test(data)) {
+      return 'Something went wrong. Please check your internet connection and try again.';
     }
     return data;
   }
@@ -65,17 +77,33 @@ const formatErrorResponse = (data, defaultFallback = 'An error occurred. Please 
       if (data.detail.toLowerCase().includes('throttled')) {
         return 'Too many attempts — please wait a moment and try again.';
       }
+      if (data.detail.includes('<!DOCTYPE html>') || data.detail.includes('Traceback') || data.detail.toLowerCase().includes('server error')) {
+        return 'Something went wrong on our end. Please try again shortly.';
+      }
+      if (/backend|server running|localhost|connection refused/i.test(data.detail)) {
+        return 'Something went wrong. Please check your internet connection and try again.';
+      }
       return data.detail;
     }
     if (data.non_field_errors) {
-      return Array.isArray(data.non_field_errors)
+      const errText = Array.isArray(data.non_field_errors)
         ? data.non_field_errors.join(' ')
         : String(data.non_field_errors);
+      if (/backend|server running|localhost|connection refused/i.test(errText)) {
+        return 'Something went wrong. Please check your internet connection and try again.';
+      }
+      return errText;
     }
     if (data.error && typeof data.error === 'string') {
+      if (/backend|server running|localhost|connection refused/i.test(data.error)) {
+        return 'Something went wrong. Please check your internet connection and try again.';
+      }
       return data.error;
     }
     if (data.message && typeof data.message === 'string') {
+      if (/backend|server running|localhost|connection refused/i.test(data.message)) {
+        return 'Something went wrong. Please check your internet connection and try again.';
+      }
       return data.message;
     }
 
@@ -120,10 +148,11 @@ export const authService = {
       }
       return data;
     } catch (error) {
+      console.error('[authService] loginEmail error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      throw new Error(formatErrorResponse(error.response.data, 'Login failed. Please check your credentials.'));
+      throw new Error(formatErrorResponse(error.response.data, 'Login failed. Please check your credentials.', error.response.status));
     }
   },
 
@@ -137,10 +166,11 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
+      console.error('[authService] requestPhoneLoginOTP error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      throw new Error(formatErrorResponse(error.response.data, 'Failed to request OTP. Please check the phone number.'));
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to request OTP. Please check the phone number.', error.response.status));
     }
   },
 
@@ -168,10 +198,11 @@ export const authService = {
       }
       return data;
     } catch (error) {
+      console.error('[authService] verifyPhoneLoginOTP error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      throw new Error(formatErrorResponse(error.response.data, 'Invalid or expired OTP token.'));
+      throw new Error(formatErrorResponse(error.response.data, 'Invalid or expired OTP token.', error.response.status));
     }
   },
 
@@ -203,10 +234,11 @@ export const authService = {
       }
       return data;
     } catch (error) {
+      console.error('[authService] loginGoogle error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      throw new Error(formatErrorResponse(error.response.data, 'Google authentication failed.'));
+      throw new Error(formatErrorResponse(error.response.data, 'Google authentication failed.', error.response.status));
     }
   },
 
@@ -220,23 +252,11 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
+      console.error('[authService] verifyEmail error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Invalid or expired verification link.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.error) {
-        errorMsg = data.error;
-      } else if (data.message) {
-        errorMsg = data.message;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Invalid or expired verification link.', error.response.status));
     }
   },
 
@@ -252,21 +272,11 @@ export const authService = {
       }
       return data;
     } catch (error) {
+      console.error('[authService] getProfile error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Failed to fetch profile details.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to fetch profile details.', error.response.status));
     }
   },
 
@@ -282,25 +292,11 @@ export const authService = {
       }
       return data;
     } catch (error) {
+      console.error('[authService] updateProfile error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Failed to update profile.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.full_name) {
-        errorMsg = Array.isArray(data.full_name) ? data.full_name[0] : data.full_name;
-      } else if (data.phone_number) {
-        errorMsg = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to update profile.', error.response.status));
     }
   },
 
@@ -312,23 +308,11 @@ export const authService = {
       const response = await api.post('/accounts/forgot-password/', { email, recaptcha_token });
       return response.data;
     } catch (error) {
+      console.error('[authService] forgotPassword error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Failed to request password reset email.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.email) {
-        errorMsg = Array.isArray(data.email) ? data.email[0] : data.email;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to request password reset email.', error.response.status));
     }
   },
 
@@ -349,27 +333,11 @@ export const authService = {
       );
       return response.data;
     } catch (error) {
+      console.error('[authService] resetPassword error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Failed to reset password.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.new_password) {
-        errorMsg = Array.isArray(data.new_password) ? data.new_password[0] : data.new_password;
-      } else if (data.confirm_password) {
-        errorMsg = Array.isArray(data.confirm_password)
-          ? data.confirm_password[0]
-          : data.confirm_password;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to reset password.', error.response.status));
     }
   },
 
@@ -385,29 +353,11 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
+      console.error('[authService] changePassword error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = 'Failed to change password.';
-
-      if (typeof data === 'string') {
-        errorMsg = data;
-      } else if (data.detail) {
-        errorMsg = data.detail;
-      } else if (data.old_password) {
-        errorMsg = Array.isArray(data.old_password) ? data.old_password[0] : data.old_password;
-      } else if (data.new_password) {
-        errorMsg = Array.isArray(data.new_password) ? data.new_password[0] : data.new_password;
-      } else if (data.confirm_password) {
-        errorMsg = Array.isArray(data.confirm_password)
-          ? data.confirm_password[0]
-          : data.confirm_password;
-      } else if (data.error) {
-        errorMsg = data.error;
-      }
-
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to change password.', error.response.status));
     }
   },
 
@@ -421,6 +371,7 @@ export const authService = {
       try {
         await api.post('/accounts/logout/', { refresh: refreshToken });
       } catch (e) {
+        console.error('[authService] logout error:', e);
         // Ignore network or token expiration errors on logout
       }
     }
@@ -485,11 +436,11 @@ export const authService = {
       }
       return data;
     } catch (error) {
+      console.error('[authService] verifyAdminMFA error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      throw new Error(data.detail || data.error || 'Failed to verify MFA code.');
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to verify MFA code.', error.response.status));
     }
   },
 
@@ -501,11 +452,11 @@ export const authService = {
       const response = await api.post('/accounts/admin/mfa/setup/');
       return response.data;
     } catch (error) {
+      console.error('[authService] setupAdminMFA error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      throw new Error(data.detail || data.error || 'Failed to initiate MFA setup.');
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to initiate MFA setup.', error.response.status));
     }
   },
 
@@ -519,11 +470,11 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
+      console.error('[authService] confirmAdminMFA error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      throw new Error(data.detail || data.error || 'Failed to confirm MFA setup.');
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to confirm MFA setup.', error.response.status));
     }
   },
 
@@ -538,11 +489,11 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
+      console.error('[authService] disableAdminMFA error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      throw new Error(data.detail || data.error || 'Failed to disable MFA.');
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to disable MFA.', error.response.status));
     }
   },
 
@@ -554,6 +505,7 @@ export const authService = {
       const response = await api.get('/accounts/admin/mfa/status/');
       return response.data;
     } catch (error) {
+      console.error('[authService] getAdminMFAStatus error:', error);
       return { is_enabled: false };
     }
   },
@@ -566,12 +518,11 @@ export const authService = {
       const response = await api.post('/accounts/invitations/');
       return response.data;
     } catch (error) {
+      console.error('[authService] createInvitation error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      let errorMsg = data.detail || data.error || 'Failed to generate invitation link.';
-      throw new Error(errorMsg);
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to generate invitation link.', error.response.status));
     }
   },
 
@@ -583,11 +534,11 @@ export const authService = {
       const response = await api.get(`/accounts/invitations/${token}/`);
       return response.data;
     } catch (error) {
+      console.error('[authService] getInvitation error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
-      const data = error.response.data;
-      return data || { valid: false, detail: 'Invalid or expired invitation link.' };
+      return { valid: false, detail: formatErrorResponse(error.response.data, 'Invalid or expired invitation link.', error.response.status) };
     }
   },
 
@@ -607,11 +558,9 @@ export const authService = {
       });
       return response.data;
     } catch (error) {
-      if (error.response && error.response.status === 429) {
-        throw new Error('Too many attempts — please wait a moment and try again.');
-      }
+      console.error('[authService] register error:', error);
       if (!error.response) {
-        throw new Error('Unable to connect to the server. Please ensure the backend is running.');
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
       throw new Error(formatErrorResponse(error.response.data, 'Registration failed. Please check the provided information.', error.response.status));
     }

@@ -32,6 +32,7 @@ export default function Profile() {
       setFullName(data.full_name || '');
       setPhoneNumber(data.phone_number || '');
     } catch (err) {
+      console.error('[Profile] fetchProfile error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Failed to load profile data.',
@@ -73,6 +74,7 @@ export default function Profile() {
         text: 'Profile updated successfully!',
       });
     } catch (err) {
+      console.error('[Profile] handleSave error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Failed to update profile.',

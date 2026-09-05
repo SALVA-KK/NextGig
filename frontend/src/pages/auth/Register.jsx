@@ -63,6 +63,7 @@ export default function Register() {
       });
       redirectBasedOnRole(data?.user);
     } catch (err) {
+      console.error('[Register] Google auth error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Google registration failed.',
@@ -124,6 +125,7 @@ export default function Register() {
           'Registration successful! Please check your email and verify your account before logging in.',
       });
     } catch (err) {
+      console.error('[Register] Submit error:', err);
       setMessage({
         type: 'error',
         text: err.message || 'Registration failed. Please try again.',

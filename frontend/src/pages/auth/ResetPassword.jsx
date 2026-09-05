@@ -41,6 +41,7 @@ export default function ResetPassword() {
       setNewPassword('');
       setConfirmPassword('');
     } catch (err) {
+      console.error('[ResetPassword] Reset error:', err);
       setStatus({
         type: 'error',
         text: err.message || 'Invalid or expired password reset link. Please request a new reset link.',
@@ -58,7 +59,7 @@ export default function ResetPassword() {
       {!hasParams ? (
         <div style={{ textAlign: 'center' }}>
           <div className="alert-banner alert-error" style={{ marginBottom: '20px' }}>
-            Invalid or missing password reset link parameters (uid and token are required).
+            Invalid or missing password reset link. Please request a new link below.
           </div>
           <Link to="/forgot-password" className="link-primary">
             Request a new password reset link
