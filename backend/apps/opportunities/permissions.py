@@ -38,3 +38,25 @@ class IsOwnerOrReadOnly(BasePermission):
         is_admin = getattr(request.user, "role", None) == "admin" or getattr(request.user, "is_staff", False)
 
         return is_owner or is_admin
+
+
+class IsApplicantOrPoster(BasePermission):
+    """
+    Permission for status updates on an Application.
+    - Poster (or Admin) can update status to under_review, accepted, or rejected.
+    - Applicant can set status to 'withdrawn' (only if current status is applied or under_review).
+    - Other users receive 403 Forbidden.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        user = request.user
+        is_poster = obj.opportunity.poster == user or getattr(user, "role", None) == "admin" or getattr(user, "is_staff", False)
+        is_applicant = obj.applicant == user
+
+        if is_poster or is_applicant:
+            return True
+
+        return False

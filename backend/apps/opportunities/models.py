@@ -126,3 +126,45 @@ class SavedOpportunity(models.Model):
     def __str__(self):
         return f"{self.user.email} saved '{self.opportunity.title}'"
 
+
+class Application(models.Model):
+    """
+    Model representing a student's application to an opportunity.
+    """
+
+    class Status(models.TextChoices):
+        APPLIED = "applied", _("Applied")
+        UNDER_REVIEW = "under_review", _("Under Review")
+        ACCEPTED = "accepted", _("Accepted")
+        REJECTED = "rejected", _("Rejected")
+        WITHDRAWN = "withdrawn", _("Withdrawn")
+
+    applicant = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="applications",
+        on_delete=models.CASCADE,
+    )
+    opportunity = models.ForeignKey(
+        Opportunity,
+        related_name="applications",
+        on_delete=models.CASCADE,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.APPLIED,
+    )
+    cover_note = models.TextField(blank=True)
+    applied_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "opportunity_applications"
+        verbose_name = _("application")
+        verbose_name_plural = _("applications")
+        unique_together = ("applicant", "opportunity")
+        ordering = ["-applied_at"]
+
+    def __str__(self):
+        return f"{self.applicant.email} applied for '{self.opportunity.title}' ({self.status})"
+

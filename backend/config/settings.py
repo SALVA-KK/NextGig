@@ -56,6 +56,7 @@ INSTALLED_APPS = [
 
     "apps.accounts",
     "apps.opportunities",
+    "django_celery_beat",
 ]
 
 # Custom User Model definition
@@ -171,6 +172,7 @@ REST_FRAMEWORK = {
         "forgot_password_ip": "3/hour",
         "forgot_password_email": "3/hour",
         "opportunity_create": "10/hour",
+        "application_create": "20/hour",
     },
 }
 
@@ -228,6 +230,23 @@ RECAPTCHA_SITE_KEY = "6LcBi4wtAAAAABRj00TpA7AXsd0-9z8WJ52y5uOV"
 
 # Test environment detection flag
 TESTING = "test" in sys.argv
+
+# Celery & Redis Configuration
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ALWAYS_EAGER = TESTING
+
+# Celery Beat Periodic Task Schedule
+CELERY_BEAT_SCHEDULE = {
+    "close-expired-opportunities-daily": {
+        "task": "apps.opportunities.tasks.close_expired_opportunities",
+        "schedule": 86400.0,  # Run once daily (every 24 hours)
+    },
+}
 
 
 # Simple JWT Configuration

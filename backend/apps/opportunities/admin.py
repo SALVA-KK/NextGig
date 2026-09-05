@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 
-from .models import Opportunity, SavedOpportunity
+from .models import Application, Opportunity, SavedOpportunity
 
 
 @admin.register(Opportunity)
@@ -115,4 +115,34 @@ class SavedOpportunityAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     readonly_fields = ("created_at",)
+
+
+@admin.register(Application)
+class ApplicationAdmin(admin.ModelAdmin):
+    """
+    Admin panel configuration for Application model.
+    """
+
+    list_display = (
+        "applicant",
+        "opportunity",
+        "status",
+        "applied_at",
+    )
+
+    list_filter = ("status",)
+
+    search_fields = (
+        "applicant__email",
+        "applicant__full_name",
+        "opportunity__title",
+        "cover_note",
+    )
+
+    ordering = ("-applied_at",)
+
+    readonly_fields = (
+        "applied_at",
+        "updated_at",
+    )
 

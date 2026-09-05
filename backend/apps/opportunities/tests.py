@@ -4,7 +4,12 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Opportunity, SavedOpportunity
+from .models import Application, Opportunity, SavedOpportunity
+from .tasks import (
+    close_expired_opportunities,
+    notify_applicant_of_status_change,
+    notify_poster_of_new_application,
+)
 
 User = get_user_model()
 
@@ -369,5 +374,262 @@ class SavedOpportunityTests(APITestCase):
 
         self.opportunity1.delete()
         self.assertEqual(SavedOpportunity.objects.count(), 0)
+
+
+class ApplicationTests(APITestCase):
+    """
+    Test suite for Applications feature, status transitions, permissions, and Celery notifications.
+    """
+
+    def setUp(self):
+        self.poster = User.objects.create_user(
+            email="poster_app@example.com",
+            password="Password123!",
+            full_name="Opportunity Poster",
+            role="provider",
+            is_verified=True,
+        )
+
+        self.student = User.objects.create_user(
+            email="student_app@example.com",
+            password="Password123!",
+            full_name="Student Applicant",
+            role="student",
+            is_verified=True,
+        )
+
+        self.unverified_student = User.objects.create_user(
+            email="unverified_student@example.com",
+            password="Password123!",
+            full_name="Unverified Student",
+            role="student",
+            is_verified=False,
+        )
+
+        self.provider = User.objects.create_user(
+            email="provider_app@example.com",
+            password="Password123!",
+            full_name="Other Provider",
+            role="provider",
+            is_verified=True,
+        )
+
+        self.other_student = User.objects.create_user(
+            email="other_student@example.com",
+            password="Password123!",
+            full_name="Other Student",
+            role="student",
+            is_verified=True,
+        )
+
+        self.open_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Django Backend Intern",
+            description="Build APIs with Django REST framework",
+            category=Opportunity.Category.INTERNSHIP,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.STIPEND,
+            status=Opportunity.Status.OPEN,
+            deadline=date.today() + timedelta(days=10),
+        )
+
+        self.closed_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Closed Gig",
+            description="Expired job",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.CLOSED,
+        )
+
+        self.draft_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Draft Gig",
+            description="Work in progress job",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.DRAFT,
+        )
+
+        self.apply_url = reverse("opportunities:opportunity-apply", kwargs={"pk": self.open_opp.pk})
+        self.my_apps_url = "/api/applications/"
+
+    def test_student_can_apply_to_open_opportunity(self):
+        """Verified student can apply to an open opportunity."""
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(self.apply_url, {"cover_note": "Interested in Django!"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "applied")
+        self.assertEqual(response.data["cover_note"], "Interested in Django!")
+        self.assertTrue(Application.objects.filter(applicant=self.student, opportunity=self.open_opp).exists())
+
+    def test_cannot_apply_twice_clean_400(self):
+        """Applying twice returns clean 400 Bad Request error (not 500 server error)."""
+        self.client.force_authenticate(user=self.student)
+        res1 = self.client.post(self.apply_url, {"cover_note": "First note"})
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        res2 = self.client.post(self.apply_url, {"cover_note": "Second note"})
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already applied", res2.data["detail"].lower())
+
+    def test_student_cannot_apply_to_own_posted_opportunity(self):
+        """A student who posted a project_collaboration opportunity cannot apply to it themselves (400 Bad Request)."""
+        proj_collab_opp = Opportunity.objects.create(
+            poster=self.student,
+            title="Open Source AI Tool",
+            description="Collaborate on LLM tooling",
+            category=Opportunity.Category.PROJECT_COLLABORATION,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.UNPAID,
+            status=Opportunity.Status.OPEN,
+        )
+        self.client.force_authenticate(user=self.student)
+        apply_own_url = reverse("opportunities:opportunity-apply", kwargs={"pk": proj_collab_opp.pk})
+        response = self.client.post(apply_own_url, {"cover_note": "Applying to my own project"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot apply to your own", response.data["detail"].lower())
+
+    def test_cannot_apply_to_closed_or_draft_opportunity(self):
+        """Cannot apply to closed or draft opportunities."""
+        self.client.force_authenticate(user=self.student)
+
+        closed_url = reverse("opportunities:opportunity-apply", kwargs={"pk": self.closed_opp.pk})
+        res_closed = self.client.post(closed_url, {"cover_note": "Try closed"})
+        self.assertEqual(res_closed.status_code, status.HTTP_400_BAD_REQUEST)
+
+        draft_url = reverse("opportunities:opportunity-apply", kwargs={"pk": self.draft_opp.pk})
+        res_draft = self.client.post(draft_url, {"cover_note": "Try draft"})
+        self.assertEqual(res_draft.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_provider_or_unverified_student_cannot_apply(self):
+        """Provider or unverified student gets 403 Forbidden when trying to apply."""
+        self.client.force_authenticate(user=self.provider)
+        res_provider = self.client.post(self.apply_url, {"cover_note": "Provider apply"})
+        self.assertEqual(res_provider.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.unverified_student)
+        res_unverified = self.client.post(self.apply_url, {"cover_note": "Unverified apply"})
+        self.assertEqual(res_unverified.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_poster_can_view_applicants(self):
+        """Poster can view applicants for their own opportunity."""
+        Application.objects.create(applicant=self.student, opportunity=self.open_opp, cover_note="Note 1")
+        Application.objects.create(applicant=self.other_student, opportunity=self.open_opp, cover_note="Note 2")
+
+        applicants_url = reverse("opportunities:opportunity-applicants", kwargs={"pk": self.open_opp.pk})
+        self.client.force_authenticate(user=self.poster)
+        response = self.client.get(applicants_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+
+    def test_non_poster_cannot_view_applicants(self):
+        """Non-poster receives 403 Forbidden when attempting to view opportunity applicants."""
+        applicants_url = reverse("opportunities:opportunity-applicants", kwargs={"pk": self.open_opp.pk})
+        self.client.force_authenticate(user=self.other_student)
+        response = self.client.get(applicants_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_poster_can_update_status_accepted_rejected(self):
+        """Poster can update applicant status to under_review, accepted, or rejected."""
+        app = Application.objects.create(applicant=self.student, opportunity=self.open_opp)
+        status_url = f"/api/applications/{app.pk}/status/"
+
+        self.client.force_authenticate(user=self.poster)
+        res_review = self.client.patch(status_url, {"status": "under_review"})
+        self.assertEqual(res_review.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_review.data["status"], "under_review")
+
+        res_accept = self.client.patch(status_url, {"status": "accepted"})
+        self.assertEqual(res_accept.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_accept.data["status"], "accepted")
+
+    def test_poster_cannot_set_applied_or_withdrawn_status(self):
+        """Poster cannot set status back to 'applied' or 'withdrawn'."""
+        app = Application.objects.create(applicant=self.student, opportunity=self.open_opp)
+        status_url = f"/api/applications/{app.pk}/status/"
+
+        self.client.force_authenticate(user=self.poster)
+        res_applied = self.client.patch(status_url, {"status": "applied"})
+        self.assertEqual(res_applied.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res_withdrawn = self.client.patch(status_url, {"status": "withdrawn"})
+        self.assertEqual(res_withdrawn.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_applicant_can_withdraw_pending_application(self):
+        """Applicant can withdraw their own pending application (status='applied' or 'under_review')."""
+        app = Application.objects.create(applicant=self.student, opportunity=self.open_opp, status="applied")
+        status_url = f"/api/applications/{app.pk}/status/"
+
+        self.client.force_authenticate(user=self.student)
+        response = self.client.patch(status_url, {"status": "withdrawn"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "withdrawn")
+
+    def test_applicant_cannot_withdraw_accepted_or_rejected_application(self):
+        """Applicant cannot withdraw an application that has already been accepted or rejected."""
+        app_accepted = Application.objects.create(applicant=self.student, opportunity=self.open_opp, status="accepted")
+        status_url = f"/api/applications/{app_accepted.pk}/status/"
+
+        self.client.force_authenticate(user=self.student)
+        response = self.client.patch(status_url, {"status": "withdrawn"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_applicant_non_poster_gets_403_on_status_update(self):
+        """Non-applicant and non-poster user receives 403 Forbidden on status update."""
+        app = Application.objects.create(applicant=self.student, opportunity=self.open_opp)
+        status_url = f"/api/applications/{app.pk}/status/"
+
+        self.client.force_authenticate(user=self.other_student)
+        response = self.client.patch(status_url, {"status": "accepted"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_celery_application_notification_tasks(self):
+        """Test Celery notification tasks directly."""
+        app = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.open_opp,
+            cover_note="Test note",
+        )
+        res_poster = notify_poster_of_new_application(app.pk)
+        self.assertTrue(res_poster)
+
+        res_applicant = notify_applicant_of_status_change(app.pk)
+        self.assertTrue(res_applicant)
+
+    def test_close_expired_opportunities_periodic_task(self):
+        """Celery Beat periodic task closes open opportunities past deadline while leaving future deadlines untouched."""
+        past_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Past Opp",
+            description="Expired",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.OPEN,
+            deadline=date.today() - timedelta(days=2),
+        )
+
+        future_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Future Opp",
+            description="Valid",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.OPEN,
+            deadline=date.today() + timedelta(days=5),
+        )
+
+        closed_count = close_expired_opportunities()
+        self.assertEqual(closed_count, 1)
+
+        past_opp.refresh_from_db()
+        future_opp.refresh_from_db()
+
+        self.assertEqual(past_opp.status, Opportunity.Status.CLOSED)
+        self.assertEqual(future_opp.status, Opportunity.Status.OPEN)
 
 

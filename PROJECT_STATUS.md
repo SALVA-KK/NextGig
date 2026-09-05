@@ -18,16 +18,18 @@
    - Registered `ProviderProfile` in Django Admin with editable `is_verified` list view for administrator verification.
    - Applied migration `0005_providerprofile`.
 
-3. **`opportunities` Django App & Saved Opportunities**:
-   - Built and registered the `opportunities` Django app (`apps.opportunities`) with full CRUD REST APIs and Bookmarking.
+3. **`opportunities` Django App, Saved Opportunities & Applications**:
+   - Built and registered the `opportunities` Django app (`apps.opportunities`) with full CRUD REST APIs, Bookmarking, and Applications.
    - Implemented `Opportunity` model in [`backend/apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py) featuring `ArrayField` required skills, pay types, work modes, vacancies, location, deadline, status, ordering by `-created_at`, and compound index on `(status, category, city)`.
    - Implemented `SavedOpportunity` model (`user`, `opportunity`, `created_at`, `unique_together = ('user', 'opportunity')`, ordering by `-created_at`).
-   - Built serializers (`OpportunityListSerializer`, `OpportunityDetailSerializer`, `OpportunityCreateUpdateSerializer`, and `SavedOpportunitySerializer` nesting opportunity details and `saved_at`).
-   - Built permissions (`IsVerifiedUser`, `IsOwnerOrReadOnly`) in [`permissions.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/permissions.py).
-   - Implemented DRF generic and API views: `OpportunityListCreateView`, `OpportunityDetailView`, `OpportunitySaveView` (`POST`/`DELETE /api/opportunities/<id>/save/`), and `SavedOpportunityListView` (`GET /api/saved-opportunities/`).
-   - Registered Django admin interfaces for `Opportunity` and `SavedOpportunity`.
-   - Applied migrations `0001_initial` and `0002_savedopportunity`.
-   - Test suite total: **52 passed unit tests** across `accounts` and `opportunities`.
+   - Implemented `Application` model in [`backend/apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py) (`applicant`, `opportunity`, `status` choices: `applied`, `under_review`, `accepted`, `rejected`, `withdrawn`, `cover_note`, `applied_at`, `updated_at`, `unique_together = ('applicant', 'opportunity')`).
+   - Built serializers (`OpportunityListSerializer`, `OpportunityDetailSerializer`, `OpportunityCreateUpdateSerializer`, `SavedOpportunitySerializer`, `ApplicationSerializer`, `ApplicantListSerializer`, `ApplicationCreateSerializer`, `ApplicationStatusUpdateSerializer`).
+   - Built permissions (`IsVerifiedUser`, `IsOwnerOrReadOnly`, `IsApplicantOrPoster`) in [`permissions.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/permissions.py).
+   - Implemented DRF generic and API views: `OpportunityListCreateView`, `OpportunityDetailView`, `OpportunitySaveView`, `SavedOpportunityListView`, `ApplicationCreateView` (`POST /api/opportunities/<id>/apply/`), `MyApplicationsListView` (`GET /api/applications/`), `OpportunityApplicantsListView` (`GET /api/opportunities/<id>/applicants/`), and `ApplicationStatusUpdateView` (`PATCH /api/applications/<id>/status/`).
+   - Integrated Celery (`5.6.3`), Redis (`8.1.0`), and `django-celery-beat` (`2.9.0`) for async email notifications (`notify_poster_of_new_application`, `notify_applicant_of_status_change`) with graceful fallback, and daily periodic task (`close_expired_opportunities`).
+   - Registered Django admin interfaces for `Opportunity`, `SavedOpportunity`, and `Application`.
+   - Applied migrations `0001_initial`, `0002_savedopportunity`, `0003_application`, and `django_celery_beat`.
+   - Test suite total: **66 passed unit tests** across `accounts` and `opportunities`.
 
 ---
 
@@ -48,6 +50,9 @@
   - `pillow`: Image processing library
   - `PyJWT` (`2.13.0`): Low-level JWT operations
   - `python-dotenv` (`1.2.2`): Environment file loading
+  - `celery` (`5.6.3`): Distributed task queue framework for asynchronous email notifications and periodic tasks
+  - `redis` (`8.1.0`): Redis Python client / Celery broker & result backend
+  - `django-celery-beat` (`2.9.0`): Database-backed periodic task scheduler for Celery Beat
 - **Frontend Libraries/Packages**:
   - `axios` (`1.19.0`): HTTP client with JWT request interceptors
   - `@react-oauth/google`: Google OAuth client SDK
@@ -106,6 +111,9 @@
 - **`SavedOpportunity`** (table `saved_opportunities` in [`apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py)):
   - Fields: `id`, `user` (FK to `CustomUser`, related_name `'saved_opportunities'`, on_delete=CASCADE), `opportunity` (FK to `Opportunity`, related_name `'saved_by'`, on_delete=CASCADE), `created_at`.
   - Meta: `unique_together = ('user', 'opportunity')`, ordering by `-created_at`.
+- **`Application`** (table `opportunity_applications` in [`apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py)):
+  - Fields: `id`, `applicant` (FK to `CustomUser`, related_name `'applications'`, on_delete=CASCADE), `opportunity` (FK to `Opportunity`, related_name `'applications'`, on_delete=CASCADE), `status` (choices: `applied`, `under_review`, `accepted`, `rejected`, `withdrawn`, default `'applied'`), `cover_note`, `applied_at`, `updated_at`.
+  - Meta: `unique_together = ('applicant', 'opportunity')`, ordering by `-applied_at`.
 
 ---
 
@@ -144,6 +152,10 @@
   - `POST /api/opportunities/<id>/save/` - Save/bookmark an opportunity (gated by `IsAuthenticated` + `IsVerifiedUser`, idempotent)
   - `DELETE /api/opportunities/<id>/save/` - Unsave/remove bookmark from an opportunity (gated by `IsAuthenticated`)
   - `GET /api/saved-opportunities/` - Retrieve paginated list of authenticated user's saved opportunities (gated by `IsAuthenticated`, page_size=20)
+  - `POST /api/opportunities/<id>/apply/` - Apply for an open opportunity (gated by `IsAuthenticated` + `IsVerifiedUser` + student role, throttled at `20/hour`)
+  - `GET /api/applications/` - Retrieve paginated list of authenticated user's submitted applications (gated by `IsAuthenticated`, supports `?status=` filter)
+  - `GET /api/opportunities/<id>/applicants/` - Retrieve paginated list of applicants for poster's opportunity (gated by `IsAuthenticated` + poster/admin check)
+  - `PATCH /api/applications/<id>/status/` - Update application status (poster: `under_review`/`accepted`/`rejected`; applicant: `withdrawn`)
 - **Module: Documentation (`/api/`)**:
   - `GET /admin/` - Django Admin interface
   - `GET /api/schema/` - OpenAPI 3 Schema
@@ -161,7 +173,7 @@
 - **Search & filters**: **Partially Done** (Query param filtering on `category`, `work_mode`, `city`, and `status` in `/api/opportunities/`)
 - **Location-based search**: **Not Started** (Geo-distance calculation/bounding box queries not implemented)
 - **Resume upload**: **Not Started**
-- **Applications (apply/withdraw/track status)**: **Not Started**
+- **Applications (apply/withdraw/track status)**: **Done** (`Application` model, `ApplicationSerializer`, `ApplicantListSerializer`, `ApplicationCreateSerializer`, `ApplicationStatusUpdateSerializer`, `IsApplicantOrPoster` permission, async Celery email notifications, rate limit `20/hour`)
 - **Saved opportunities**: **Done**
 - **Reviews/ratings**: **Not Started**
 - **Notifications**: **Not Started**
@@ -172,13 +184,18 @@
 
 ### 7. TOOLING STATUS
 
-- **Celery / Celery Beat**: **Not implemented**
+- **Celery / Celery Beat**: **Done**
+  - Worker command: `celery -A config worker --loglevel=info` (run inside `backend/` directory)
+  - Beat command: `celery -A config beat --loglevel=info` (run inside `backend/` directory)
+  - Prerequisite: Local Redis broker running (`redis-server` or Redis container at `redis://localhost:6379/0`)
+  - Tasks: `notify_poster_of_new_application`, `notify_applicant_of_status_change`, and periodic `close_expired_opportunities` (daily via `CELERY_BEAT_SCHEDULE`)
+  - Fallback: Graceful error handling in DEBUG mode if Redis is offline (HTTP API requests succeed seamlessly without failing process flow)
 - **Docker**: **Not implemented**
 - **Unit Tests**:
   - Test suites: [`apps/accounts/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/tests.py) and [`apps/opportunities/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tests.py).
-  - Total tests: **52 unit tests passed** (`python manage.py test apps.accounts.tests apps.opportunities.tests`).
-  - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, and Saved Opportunity bookmarking/isolation/idempotency/CASCADE.
-- **Pagination**: Implemented on `opportunities` list endpoint and `saved-opportunities` list endpoint (`OpportunityPagination`, `page_size=20`, `max_page_size=100`).
+  - Total tests: **66 unit tests passed** (`.\venv\Scripts\python.exe manage.py test apps.accounts.tests apps.opportunities.tests`).
+  - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, Saved Opportunity bookmarking/isolation/idempotency/CASCADE, Applications apply/withdraw/status transitions, student role validation, self-application prevention, poster applicant views, and Celery task execution & Celery Beat opportunity auto-closure.
+- **Pagination**: Implemented on `opportunities`, `saved-opportunities`, `applications`, and `opportunity-applicants` list endpoints (`OpportunityPagination`, `page_size=20`, `max_page_size=100`).
 
 ---
 

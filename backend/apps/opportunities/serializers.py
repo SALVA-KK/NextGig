@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Opportunity, SavedOpportunity
+from .models import Application, Opportunity, SavedOpportunity
 
 User = get_user_model()
 
@@ -147,4 +147,102 @@ class SavedOpportunitySerializer(serializers.ModelSerializer):
         model = SavedOpportunity
         fields = ("id", "opportunity", "saved_at")
         read_only_fields = ("id", "opportunity", "saved_at")
+
+
+class ApplicationSerializer(serializers.ModelSerializer):
+    """
+    Full representation of an application for the applicant's own 'my applications' view.
+    """
+
+    opportunity = OpportunityListSerializer(read_only=True)
+    applicant = PosterPublicSerializer(read_only=True)
+
+    class Meta:
+        model = Application
+        fields = (
+            "id",
+            "opportunity",
+            "applicant",
+            "status",
+            "cover_note",
+            "applied_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class ApplicantListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for opportunity posters viewing applicants to their opportunity.
+    Nests applicant user details alongside cover_note, status, and applied_at.
+    """
+
+    applicant = PosterPublicSerializer(read_only=True)
+
+    class Meta:
+        model = Application
+        fields = (
+            "id",
+            "applicant",
+            "status",
+            "cover_note",
+            "applied_at",
+        )
+        read_only_fields = fields
+
+
+class ApplicationCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating an application.
+    Only cover_note is client-writable.
+    Validates opportunity status, applicant role, and unique application constraint.
+    """
+
+    class Meta:
+        model = Application
+        fields = ("id", "cover_note")
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        opportunity = self.context.get("opportunity")
+
+        if not request or not request.user:
+            raise serializers.ValidationError("Authentication required.")
+
+        user = request.user
+        if getattr(user, "role", None) != "student":
+            raise serializers.ValidationError("Only students can apply to opportunities.")
+
+        if not opportunity or opportunity.status != Opportunity.Status.OPEN:
+            raise serializers.ValidationError("Cannot apply to closed or draft opportunities.")
+
+        if opportunity.poster == user:
+            raise serializers.ValidationError("You cannot apply to your own posted opportunity.")
+
+        if Application.objects.filter(applicant=user, opportunity=opportunity).exists():
+            raise serializers.ValidationError("You have already applied to this opportunity.")
+
+        return attrs
+
+
+class ApplicationStatusUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for poster status updates (under_review, accepted, rejected).
+    """
+
+    class Meta:
+        model = Application
+        fields = ("status",)
+
+    def validate_status(self, value):
+        allowed_poster_statuses = [
+            Application.Status.UNDER_REVIEW,
+            Application.Status.ACCEPTED,
+            Application.Status.REJECTED,
+        ]
+        if value not in allowed_poster_statuses:
+            raise serializers.ValidationError(
+                f"Invalid status transition. Allowed values: {', '.join(allowed_poster_statuses)}"
+            )
+        return value
 

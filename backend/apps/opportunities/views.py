@@ -1,5 +1,6 @@
 import logging
 
+from django.db import IntegrityError
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
 from rest_framework.pagination import PageNumberPagination
@@ -8,14 +9,19 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import Opportunity, SavedOpportunity
-from .permissions import IsOwnerOrReadOnly, IsVerifiedUser
+from .models import Application, Opportunity, SavedOpportunity
+from .permissions import IsApplicantOrPoster, IsOwnerOrReadOnly, IsVerifiedUser
 from .serializers import (
+    ApplicantListSerializer,
+    ApplicationCreateSerializer,
+    ApplicationSerializer,
+    ApplicationStatusUpdateSerializer,
     OpportunityCreateUpdateSerializer,
     OpportunityDetailSerializer,
     OpportunityListSerializer,
     SavedOpportunitySerializer,
 )
+from .tasks import notify_applicant_of_status_change, notify_poster_of_new_application
 
 logger = logging.getLogger(__name__)
 
@@ -237,4 +243,218 @@ class SavedOpportunityListView(generics.ListAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+class ApplicationCreateView(APIView):
+    """
+    API endpoint for students to apply to an open opportunity.
+    Gated by IsAuthenticated + IsVerifiedUser + Student role check.
+    Throttled at 20 requests/hour.
+    """
+
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    throttle_scope = "application_create"
+
+    def get_throttles(self):
+        return [ScopedRateThrottle()]
+
+    @extend_schema(
+        summary="Apply for an opportunity",
+        description="Submits an application for an open opportunity. Accessible only to verified student accounts.",
+        request=ApplicationCreateSerializer,
+        responses={201: ApplicationSerializer, 400: inline_serializer(name="ApplicationError", fields={"detail": serializers.CharField()})},
+    )
+    def post(self, request, pk, *args, **kwargs):
+        if getattr(request.user, "role", None) != "student":
+            return Response(
+                {"detail": "Only students can apply to opportunities."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        opportunity = generics.get_object_or_404(Opportunity, pk=pk)
+
+        if opportunity.status != Opportunity.Status.OPEN:
+            return Response(
+                {"detail": "Cannot apply to closed or draft opportunities."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if opportunity.poster == request.user:
+            return Response(
+                {"detail": "You cannot apply to your own posted opportunity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if Application.objects.filter(applicant=request.user, opportunity=opportunity).exists():
+            return Response(
+                {"detail": "You have already applied to this opportunity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ApplicationCreateSerializer(
+            data=request.data,
+            context={"request": request, "opportunity": opportunity},
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            application = serializer.save(
+                applicant=request.user,
+                opportunity=opportunity,
+            )
+        except IntegrityError:
+            return Response(
+                {"detail": "You have already applied to this opportunity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Trigger async email notification with graceful fallback if Redis is offline
+        try:
+            notify_poster_of_new_application.delay(application.id)
+        except Exception as e:
+            logger.warning(f"Failed to enqueue poster notification task: {e}")
+
+        output_serializer = ApplicationSerializer(application)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MyApplicationsListView(generics.ListAPIView):
+    """
+    API endpoint for authenticated applicants to list their own submitted applications.
+    Supports optional status query parameter filtering.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ApplicationSerializer
+    pagination_class = OpportunityPagination
+
+    def get_queryset(self):
+        queryset = Application.objects.filter(applicant=self.request.user).select_related(
+            "opportunity", "opportunity__poster", "applicant"
+        )
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param.strip())
+        return queryset
+
+    @extend_schema(
+        summary="List my applications",
+        description="Returns a paginated list of applications submitted by the authenticated user.",
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter applications by status (applied, under_review, accepted, rejected, withdrawn)"),
+        ],
+        responses={200: ApplicationSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class OpportunityApplicantsListView(generics.ListAPIView):
+    """
+    API endpoint for opportunity posters (or admins) to view all applicants for their opportunity.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ApplicantListSerializer
+    pagination_class = OpportunityPagination
+
+    def get_queryset(self):
+        pk = self.kwargs.get("pk")
+        opportunity = generics.get_object_or_404(Opportunity, pk=pk)
+
+        user = self.request.user
+        is_poster = opportunity.poster == user or getattr(user, "role", None) == "admin" or getattr(user, "is_staff", False)
+        if not is_poster:
+            return Application.objects.none()
+
+        return Application.objects.filter(opportunity=opportunity).select_related("applicant")
+
+    @extend_schema(
+        summary="List applicants for an opportunity",
+        description="Returns a paginated list of applicants for a specific opportunity. Accessible only to the opportunity poster or admin.",
+        responses={200: ApplicantListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        pk = self.kwargs.get("pk")
+        opportunity = generics.get_object_or_404(Opportunity, pk=pk)
+
+        user = request.user
+        is_poster = opportunity.poster == user or getattr(user, "role", None) == "admin" or getattr(user, "is_staff", False)
+        if not is_poster:
+            return Response(
+                {"detail": "You do not have permission to view applicants for this opportunity."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return super().get(request, *args, **kwargs)
+
+
+class ApplicationStatusUpdateView(APIView):
+    """
+    API endpoint for updating an application status.
+    - Poster can set under_review, accepted, rejected.
+    - Applicant can withdraw pending applications.
+    """
+
+    permission_classes = [IsAuthenticated, IsApplicantOrPoster]
+
+    @extend_schema(
+        summary="Update application status",
+        description="Updates an application status. Posters can update to under_review, accepted, or rejected. Applicants can withdraw pending applications.",
+        request=ApplicationStatusUpdateSerializer,
+        responses={200: ApplicationSerializer},
+    )
+    def patch(self, request, pk, *args, **kwargs):
+        application = generics.get_object_or_404(
+            Application.objects.select_related("opportunity", "opportunity__poster", "applicant"),
+            pk=pk,
+        )
+
+        self.check_object_permissions(request, application)
+
+        user = request.user
+        is_poster = application.opportunity.poster == user or getattr(user, "role", None) == "admin" or getattr(user, "is_staff", False)
+        is_applicant = application.applicant == user
+
+        new_status = request.data.get("status")
+
+        if is_applicant and not is_poster:
+            # Applicant withdrawal flow
+            if new_status != Application.Status.WITHDRAWN:
+                return Response(
+                    {"detail": "Applicants can only withdraw their application."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if application.status not in [Application.Status.APPLIED, Application.Status.UNDER_REVIEW]:
+                return Response(
+                    {"detail": "Cannot withdraw an application that has already been accepted, rejected, or withdrawn."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            application.status = Application.Status.WITHDRAWN
+            application.save()
+            output_serializer = ApplicationSerializer(application)
+            return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+        # Poster status update flow
+        serializer = ApplicationStatusUpdateSerializer(
+            instance=application,
+            data=request.data,
+            partial=True,
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        application = serializer.save()
+
+        # Notify applicant of poster-initiated status change
+        try:
+            notify_applicant_of_status_change.delay(application.id)
+        except Exception as e:
+            logger.warning(f"Failed to enqueue applicant notification task: {e}")
+
+        output_serializer = ApplicationSerializer(application)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
 

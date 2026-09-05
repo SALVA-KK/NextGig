@@ -12,7 +12,11 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from apps.opportunities.views import SavedOpportunityListView
+from apps.opportunities.views import (
+    ApplicationStatusUpdateView,
+    MyApplicationsListView,
+    SavedOpportunityListView,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -22,6 +26,9 @@ urlpatterns = [
     path("api/opportunities/", include("apps.opportunities.urls")),
     # Saved Opportunities endpoint
     path("api/saved-opportunities/", SavedOpportunityListView.as_view(), name="root-saved-opportunity-list"),
+    # Applications API endpoints
+    path("api/applications/", MyApplicationsListView.as_view(), name="root-my-applications-list"),
+    path("api/applications/<int:pk>/status/", ApplicationStatusUpdateView.as_view(), name="root-application-status-update"),
     # OpenAPI 3 Schema & API Documentation UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
