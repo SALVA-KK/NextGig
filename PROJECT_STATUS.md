@@ -195,7 +195,7 @@
   - Test suites: [`apps/accounts/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/tests.py) and [`apps/opportunities/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tests.py).
   - Total tests: **66 unit tests passed** (`.\venv\Scripts\python.exe manage.py test apps.accounts.tests apps.opportunities.tests`).
   - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, Saved Opportunity bookmarking/isolation/idempotency/CASCADE, Applications apply/withdraw/status transitions, student role validation, self-application prevention, poster applicant views, and Celery task execution & Celery Beat opportunity auto-closure.
-- **Pagination**: Implemented on `opportunities`, `saved-opportunities`, `applications`, and `opportunity-applicants` list endpoints (`OpportunityPagination`, `page_size=20`, `max_page_size=100`).
+- **Pagination**: **Done** (Global default `rest_framework.pagination.PageNumberPagination` configured in `settings.py` `REST_FRAMEWORK` with `PAGE_SIZE = 20`; view-level `OpportunityPagination` with `page_size=20`, `max_page_size=100` active across opportunity, application, and saved lists).
 
 ---
 
