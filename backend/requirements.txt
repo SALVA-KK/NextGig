@@ -24,4 +24,6 @@ google-auth
 celery==5.6.3
 redis==8.1.0
 django-celery-beat==2.9.0
+requests
+firebase-admin
 

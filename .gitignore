@@ -4,7 +4,10 @@ __pycache__/
 *.py[cod]
 
 # Environment variables
+.env
+*.env
 backend/.env
+
 
 # Django
 *.sqlite3
@@ -22,4 +25,9 @@ Thumbs.db
 
 # Firebase Credentials
 **/firebase-credentials.json
-backend/config/firebase-credentials.json
+backend/config/firebase-credentials.json
+
+# Celery Beat
+celerybeat-schedule*
+backend/celerybeat-schedule*
+

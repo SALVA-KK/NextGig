@@ -1,0 +1,23 @@
+# Environments & Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Git VCS
+.git/
+.gitignore
+
+# Frontend & node assets
+node_modules/
+
+# Local environment & sensitive credentials
+.env
+*.env
+firebase-credentials.json
