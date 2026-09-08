@@ -2,7 +2,7 @@
 
 ---
 
-### SESSION SUMMARY (Work Completed Today)
+### SESSION SUMMARY (Work Completed)
 
 1. **Authentication Security & History Stack Fixes**:
    - Audited the full authentication subsystem across Email/Password, Google OAuth, Firebase Phone Auth, and Admin MFA (TOTP + 8-character hashed backup codes).
@@ -26,9 +26,22 @@
    - Built serializers (`OpportunityListSerializer`, `OpportunityDetailSerializer`, `OpportunityCreateUpdateSerializer`, `SavedOpportunitySerializer`, `ApplicationSerializer`, `ApplicantListSerializer`, `ApplicationCreateSerializer`, `ApplicationStatusUpdateSerializer`).
    - Built permissions (`IsVerifiedUser`, `IsOwnerOrReadOnly`, `IsApplicantOrPoster`) in [`permissions.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/permissions.py).
    - Implemented DRF generic and API views: `OpportunityListCreateView`, `OpportunityDetailView`, `OpportunitySaveView`, `SavedOpportunityListView`, `ApplicationCreateView` (`POST /api/opportunities/<id>/apply/`), `MyApplicationsListView` (`GET /api/applications/`), `OpportunityApplicantsListView` (`GET /api/opportunities/<id>/applicants/`), and `ApplicationStatusUpdateView` (`PATCH /api/applications/<id>/status/`).
-   - Integrated Celery (`5.6.3`), Redis (`8.1.0`), and `django-celery-beat` (`2.9.0`) for async email notifications (`notify_poster_of_new_application`, `notify_applicant_of_status_change`) with graceful fallback, and daily periodic task (`close_expired_opportunities`).
+   - Integrated Celery (`5.6.3`), Redis (`8.1.0`), and `django-celery-beat` (`2.9.0`) in [`tasks.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tasks.py) for async email notifications (`notify_poster_of_new_application`, `notify_applicant_of_status_change`) with graceful fallback, and daily periodic task (`close_expired_opportunities`).
    - Registered Django admin interfaces for `Opportunity`, `SavedOpportunity`, and `Application`.
-   - Applied migrations `0001_initial`, `0002_savedopportunity`, `0003_application`, and `django_celery_beat`.
+
+4. **Global DRF Pagination**:
+   - Added global default pagination setting in `settings.py` REST_FRAMEWORK config: `DEFAULT_PAGINATION_CLASS: rest_framework.pagination.PageNumberPagination` and `PAGE_SIZE: 20`.
+   - Verified custom view pagination classes (e.g. `OpportunityPagination`) override the global default seamlessly without breaking existing endpoints.
+
+5. **User-Facing Error Message Sanitization**:
+   - Audited and sanitized raw technical error output across frontend auth and opportunity services/components.
+   - Replaced raw server error text ("connection refused", "backend down", raw 500 stack traces) with clear, user-appropriate phrasing while preserving technical log traces in `console.error()`.
+
+6. **Full Docker & Docker Compose Containerization**:
+   - Created lightweight backend [`Dockerfile`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/Dockerfile) (`python:3.12-slim`).
+   - Orchestrated 5 Docker services in [`docker-compose.yml`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/docker-compose.yml): `db` (PostgreSQL 16), `redis` (Redis 7), `web` (Django dev server auto-running migrations), `celery_worker` (Celery worker), and `celery_beat` (Celery Beat periodic scheduler).
+   - Created [backend/.dockerignore](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/.dockerignore) and root [.gitignore](file:///c:/Users/ACM/Desktop/myprojects/NextGig/.gitignore) protecting sensitive environment files (`.env`, `firebase-credentials.json`, `celerybeat-schedule`).
+   - Created comprehensive backend infrastructure documentation in [backend/DOCKER.md](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/DOCKER.md) covering cold start procedures, port conflict resolution, stale volume resets, migration drift, and environment variable rules.
    - Test suite total: **66 passed unit tests** across `accounts` and `opportunities`.
 
 ---
@@ -38,6 +51,8 @@
 - **Backend Framework & Version**: Django `6.0.8`, Django REST Framework `3.17.2`
 - **Frontend Framework & Version**: React `19.2.8`, Vite `8.2.0`, React Router DOM `7.18.2`
 - **Database Used**: PostgreSQL (`django.db.backends.postgresql`, connected via `psycopg2-binary` `2.9.12`)
+- **Containerization & Orchestration**: Docker, Docker Compose (`docker-compose.yml`)
+- **Task Queue & Caching**: Celery `5.6.3`, Redis `8.1.0`, `django-celery-beat` `2.9.0`
 - **Backend Libraries/Packages**:
   - `django.contrib.postgres`: PostgreSQL specific fields (`ArrayField`)
   - `djangorestframework_simplejwt` (`5.5.1`): JWT Authentication & Token Blacklisting
@@ -63,10 +78,17 @@
 
 ### 2. PROJECT STRUCTURE
 
+- **Root Level**:
+  - `docker-compose.yml`: Multi-container orchestration (5 services: `db`, `redis`, `web`, `celery_worker`, `celery_beat`)
+  - `.env`: Environment variables for Docker Compose substitution (ignored by Git)
+  - `.gitignore`: Master Git exclusion manifest
 - **`backend/`**:
-  - **`config/`**: Core project settings ([`settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py)), URL router ([`urls.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/urls.py)), WSGI ([`wsgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/wsgi.py)), and ASGI ([`asgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/asgi.py)) entrypoints.
-  - **`apps/accounts/`**: Manages custom user authentication, email verification, password reset, MSG91 SMS fallback, Firebase Phone Auth, Google OAuth, TOTP Admin MFA, user profiles, provider profiles, and invitation links.
-  - **`apps/opportunities/`**: Manages opportunity listings, CRUD REST APIs, saved opportunities (bookmarking), category/work-mode/city query filtering, owner/admin permissions, and creation throttling.
+  - `Dockerfile`: Production/Dev Docker build definition (`python:3.12-slim`)
+  - `.dockerignore`: Docker context build exclusion manifest
+  - `DOCKER.md`: Infrastructure management and troubleshooting guide
+  - **`config/`**: Core project settings ([`settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py)), URL router ([`urls.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/urls.py)), Celery setup ([`celery.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/celery.py)), WSGI ([`wsgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/wsgi.py)), and ASGI ([`asgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/asgi.py)) entrypoints.
+  - **`apps/accounts/`**: Custom user authentication, email verification, password reset, MSG91 SMS fallback, Firebase Phone Auth, Google OAuth, TOTP Admin MFA, user profiles, provider profiles, and invitation links.
+  - **`apps/opportunities/`**: Opportunity listings, CRUD REST APIs, saved opportunities (bookmarking), application tracking, categories/work-modes/city filtering, permissions, creation throttling, and Celery async background tasks (`tasks.py`).
 - **`frontend/`**:
   - **`src/components/`**: Reusable UI components grouped by feature ([`auth/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/auth), [`dashboard/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/dashboard), [`home/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/home), [`profile/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile)).
   - **`src/pages/`**: Top-level page views ([`auth/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/auth), [`dashboard/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/dashboard), [`admin/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/admin), [`profile/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/profile), [`Home.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/Home.jsx)).
@@ -170,13 +192,12 @@
 - **Provider registration & profile**: **Done**
 - **Opportunity CRUD**: **Done**
 - **Saved opportunities (bookmarking)**: **Done** (`SavedOpportunity` model, `SavedOpportunitySerializer`, `OpportunitySaveView`, `SavedOpportunityListView`, user isolation, idempotent saving, CASCADE cleanup, unit tests)
+- **Applications (apply/withdraw/track status)**: **Done** (`Application` model, `ApplicationSerializer`, `ApplicantListSerializer`, `ApplicationCreateSerializer`, `ApplicationStatusUpdateSerializer`, `IsApplicantOrPoster` permission, async Celery email notifications, rate limit `20/hour`)
 - **Search & filters**: **Partially Done** (Query param filtering on `category`, `work_mode`, `city`, and `status` in `/api/opportunities/`)
 - **Location-based search**: **Not Started** (Geo-distance calculation/bounding box queries not implemented)
 - **Resume upload**: **Not Started**
-- **Applications (apply/withdraw/track status)**: **Done** (`Application` model, `ApplicationSerializer`, `ApplicantListSerializer`, `ApplicationCreateSerializer`, `ApplicationStatusUpdateSerializer`, `IsApplicantOrPoster` permission, async Celery email notifications, rate limit `20/hour`)
-- **Saved opportunities**: **Done**
 - **Reviews/ratings**: **Not Started**
-- **Notifications**: **Not Started**
+- **Notifications (in-app)**: **Not Started** (Async email notifications active via Celery; in-app notification center pending UI)
 - **Direct contact / messaging**: **Not Started**
 - **Admin panel/management**: **Partially Done** (Django Admin registered for all models; Admin MFA setup active)
 
@@ -185,15 +206,18 @@
 ### 7. TOOLING STATUS
 
 - **Celery / Celery Beat**: **Done**
-  - Worker command: `celery -A config worker --loglevel=info` (run inside `backend/` directory)
-  - Beat command: `celery -A config beat --loglevel=info` (run inside `backend/` directory)
-  - Prerequisite: Local Redis broker running (`redis-server` or Redis container at `redis://localhost:6379/0`)
+  - Worker command: `celery -A config worker --loglevel=info`
+  - Beat command: `celery -A config beat --loglevel=info`
+  - Container services: `celery_worker` and `celery_beat` in `docker-compose.yml`
   - Tasks: `notify_poster_of_new_application`, `notify_applicant_of_status_change`, and periodic `close_expired_opportunities` (daily via `CELERY_BEAT_SCHEDULE`)
   - Fallback: Graceful error handling in DEBUG mode if Redis is offline (HTTP API requests succeed seamlessly without failing process flow)
-- **Docker**: **Not implemented**
+- **Docker & Docker Compose**: **Done**
+  - Single-command orchestration: `docker-compose up -d`
+  - Services: `db` (PostgreSQL 16), `redis` (Redis 7), `web` (Django dev server), `celery_worker`, `celery_beat`
+  - Documentation: [backend/DOCKER.md](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/DOCKER.md)
 - **Unit Tests**:
   - Test suites: [`apps/accounts/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/tests.py) and [`apps/opportunities/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tests.py).
-  - Total tests: **66 unit tests passed** (`.\venv\Scripts\python.exe manage.py test apps.accounts.tests apps.opportunities.tests`).
+  - Total tests: **66 unit tests passed** (`docker-compose exec web python manage.py test apps.accounts.tests apps.opportunities.tests`).
   - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, Saved Opportunity bookmarking/isolation/idempotency/CASCADE, Applications apply/withdraw/status transitions, student role validation, self-application prevention, poster applicant views, and Celery task execution & Celery Beat opportunity auto-closure.
 - **Pagination**: **Done** (Global default `rest_framework.pagination.PageNumberPagination` configured in `settings.py` `REST_FRAMEWORK` with `PAGE_SIZE = 20`; view-level `OpportunityPagination` with `page_size=20`, `max_page_size=100` active across opportunity, application, and saved lists).
 
@@ -202,24 +226,28 @@
 ### 8. KNOWN ISSUES / OUTSTANDING ITEMS
 
 1. **Firebase SMS Real Delivery Setup**:
-   - Real SMS delivery on Firebase requires upgrading the Firebase project to the **Blaze (Pay-as-you-go)** billing plan and setting up SMS quota limits in GCP Console. Test phone numbers work in sandbox mode.
+   - Real SMS delivery on Firebase is blocked by a Google Cloud billing account error (`OR_BACR2`). It requires resolving account billing in GCP Console to enable the Blaze (Pay-as-you-go) plan. Test phone numbers work in sandbox mode.
 2. **Firebase Web API Key Restrictions**:
    - The Firebase Web API key (`apiKey` in `firebase-credentials.json`) currently lacks HTTP referrer restrictions and API scope restrictions in the Google Cloud Console. Referrer restrictions should be applied before production deployment.
-3. **Hardcoded Frontend API Base URL**:
+3. **Frontend UI Integration for Opportunities & Applications**:
+   - Backend APIs for Opportunity CRUD, Bookmarking, Provider Profiles, and Applications are fully built, verified, containerized, and tested. Frontend React pages/components for these features are pending UI design mockups.
+4. **Hardcoded Frontend API Base URL**:
    - [`authService.js`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/services/authService.js#L3) hardcodes `API_BASE_URL = 'http://127.0.0.1:8000/api'` rather than reading from `import.meta.env.VITE_API_BASE_URL`.
-4. **JWT Storage in `localStorage`**:
+5. **JWT Storage in `localStorage`**:
    - Tokens (`access_token`, `refresh_token`) are stored in `localStorage`. Migrating to `httpOnly`, `SameSite` cookies is recommended for enhanced XSS protection in future refactoring.
 
 ---
 
 ### 9. ENVIRONMENT / CONFIG
 
-- **Expected Environment Variables (`backend/.env` & [`settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py))**:
+- **Expected Environment Variables (`.env`, `backend/.env`, & [`settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py))**:
   - `SECRET_KEY`
   - `DEBUG`
   - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
+  - `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
   - `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `DEFAULT_FROM_EMAIL`
   - `FRONTEND_URL`
   - `GOOGLE_CLIENT_ID`
+  - `RECAPTCHA_SECRET_KEY`
   - `FIREBASE_CREDENTIALS_PATH`
   - `MSG91_AUTHKEY`, `MSG91_WIDGET_ID`

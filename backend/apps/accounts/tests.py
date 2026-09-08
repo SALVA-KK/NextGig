@@ -899,6 +899,220 @@ class ProviderProfileTestCase(TestCase):
         self.assertEqual(res.data["organization_name"], "Acme Corp Admin")
 
 
+class StudentResumeTestCase(TestCase):
+    """
+    Test suite for Student Resume Upload, View, Replace, Delete, Download, and Security rules.
+    """
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client = APIClient()
+        self.resume_url = "/api/accounts/profile/resume/"
+        self.download_url = "/api/accounts/profile/resume/download/"
+
+        # Verified Student User
+        self.verified_student = CustomUser.objects.create_user(
+            email="student1@example.com",
+            full_name="Alice Student",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+
+        # Unverified Student User
+        self.unverified_student = CustomUser.objects.create_user(
+            email="unverified@example.com",
+            full_name="Unverified Student",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_verified=False,
+        )
+
+        # Provider User
+        self.provider_user = CustomUser.objects.create_user(
+            email="provider@example.com",
+            full_name="Bob Provider",
+            password="Password123!",
+            role=CustomUser.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        # Admin User
+        self.admin_user = CustomUser.objects.create_user(
+            email="admin@example.com",
+            full_name="Admin User",
+            password="Password123!",
+            role=CustomUser.Role.ADMIN,
+            is_verified=True,
+            is_staff=True,
+        )
+
+        # Valid Sample Files
+        self.sample_pdf_bytes = b"%PDF-1.5 %sample pdf header and text stream..."
+        self.sample_docx_bytes = b"PK\x03\x04 sample docx zip header and content..."
+
+    def test_anonymous_user_denied(self):
+        """Unauthenticated requests return 401 Unauthorized."""
+        res_get = self.client.get(self.resume_url)
+        self.assertEqual(res_get.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        res_post = self.client.post(self.resume_url, {})
+        self.assertEqual(res_post.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        res_del = self.client.delete(self.resume_url)
+        self.assertEqual(res_del.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unverified_student_denied(self):
+        """Unverified student gets 403 Forbidden."""
+        self.client.force_authenticate(user=self.unverified_student)
+        res = self.client.get(self.resume_url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_provider_user_denied(self):
+        """Provider account gets 403 Forbidden."""
+        self.client.force_authenticate(user=self.provider_user)
+        res = self.client.get(self.resume_url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_user_denied(self):
+        """Admin account gets 403 Forbidden when attempting student resume endpoint."""
+        self.client.force_authenticate(user=self.admin_user)
+        res = self.client.get(self.resume_url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_verified_student_upload_pdf_success(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        pdf_file = SimpleUploadedFile("alice_resume.pdf", self.sample_pdf_bytes, content_type="application/pdf")
+
+        res = self.client.post(self.resume_url, {"file": pdf_file}, format="multipart")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["original_filename"], "alice_resume.pdf")
+        self.assertEqual(res.data["download_url"], self.download_url)
+        self.assertTrue(self.verified_student.resume is not None)
+
+    def test_verified_student_upload_docx_success(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        docx_file = SimpleUploadedFile("alice_resume.docx", self.sample_docx_bytes, content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+        res = self.client.post(self.resume_url, {"file": docx_file}, format="multipart")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["original_filename"], "alice_resume.docx")
+
+    def test_upload_invalid_extension_rejected(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        txt_file = SimpleUploadedFile("resume.txt", b"Plain text resume", content_type="text/plain")
+
+        res = self.client.post(self.resume_url, {"file": txt_file}, format="multipart")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Unsupported file type", str(res.data))
+
+    def test_upload_fake_pdf_magic_bytes_rejected(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        # File ends in .pdf but header is executable/text, NOT %PDF-
+        fake_pdf = SimpleUploadedFile("fake.pdf", b"MZ\x90\x00 fake windows executable content", content_type="application/pdf")
+
+        res = self.client.post(self.resume_url, {"file": fake_pdf}, format="multipart")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid or corrupted PDF file", str(res.data))
+
+    def test_upload_oversized_file_rejected(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        # Create file over 5 MB
+        big_content = b"%PDF-" + b"0" * (5 * 1024 * 1024 + 100)
+        big_file = SimpleUploadedFile("big.pdf", big_content, content_type="application/pdf")
+
+        res = self.client.post(self.resume_url, {"file": big_file}, format="multipart")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("File is too large", str(res.data))
+
+    def test_student_get_resume_metadata(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        pdf_file = SimpleUploadedFile("alice_resume.pdf", self.sample_pdf_bytes, content_type="application/pdf")
+        self.client.post(self.resume_url, {"file": pdf_file}, format="multipart")
+
+        res = self.client.get(self.resume_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["original_filename"], "alice_resume.pdf")
+
+    def test_student_replace_resume_success(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        # First upload
+        file1 = SimpleUploadedFile("old_resume.pdf", self.sample_pdf_bytes, content_type="application/pdf")
+        self.client.post(self.resume_url, {"file": file1}, format="multipart")
+
+        # Replacement upload
+        file2 = SimpleUploadedFile("new_resume.docx", self.sample_docx_bytes, content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        res_replace = self.client.post(self.resume_url, {"file": file2}, format="multipart")
+
+        self.assertEqual(res_replace.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_replace.data["original_filename"], "new_resume.docx")
+
+    def test_failed_replacement_preserves_existing_resume(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        # Upload valid resume
+        file1 = SimpleUploadedFile("initial_resume.pdf", self.sample_pdf_bytes, content_type="application/pdf")
+        self.client.post(self.resume_url, {"file": file1}, format="multipart")
+
+        # Attempt invalid replacement
+        invalid_file = SimpleUploadedFile("bad.txt", b"plain text", content_type="text/plain")
+        res_failed = self.client.post(self.resume_url, {"file": invalid_file}, format="multipart")
+        self.assertEqual(res_failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Verify initial resume remains intact
+        res_get = self.client.get(self.resume_url)
+        self.assertEqual(res_get.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_get.data["original_filename"], "initial_resume.pdf")
+
+    def test_student_delete_resume_success(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        file1 = SimpleUploadedFile("to_delete.pdf", self.sample_pdf_bytes, content_type="application/pdf")
+        self.client.post(self.resume_url, {"file": file1}, format="multipart")
+
+        res_del = self.client.delete(self.resume_url)
+        self.assertEqual(res_del.status_code, status.HTTP_200_OK)
+
+        # Refresh user instance from DB to ensure no stale cached relation
+        self.verified_student.refresh_from_db()
+        self.client.force_authenticate(user=self.verified_student)
+
+        # GET should return no resume
+        res_get = self.client.get(self.resume_url)
+        self.assertEqual(res_get.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_get.data["resume"], None)
+
+
+    def test_student_download_resume_success(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.verified_student)
+        file1 = SimpleUploadedFile("my_resume.pdf", self.sample_pdf_bytes, content_type="application/pdf")
+        self.client.post(self.resume_url, {"file": file1}, format="multipart")
+
+        res_dl = self.client.get(self.download_url)
+        self.assertEqual(res_dl.status_code, status.HTTP_200_OK)
+        self.assertIn("my_resume.pdf", res_dl["Content-Disposition"])
+
+
+
 
 
 

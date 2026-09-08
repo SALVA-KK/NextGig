@@ -20,10 +20,13 @@ from .views import (
     RequestOTPView,
     ResetPasswordView,
     StudentRegistrationView,
+    StudentResumeDownloadView,
+    StudentResumeView,
     UserProfileView,
     VerifyEmailView,
     VerifyOTPView,
 )
+
 
 app_name = "accounts"
 
@@ -99,10 +102,21 @@ urlpatterns = [
         name="user-profile",
     ),
     path(
+        "profile/resume/",
+        StudentResumeView.as_view(),
+        name="student-resume",
+    ),
+    path(
+        "profile/resume/download/",
+        StudentResumeDownloadView.as_view(),
+        name="student-resume-download",
+    ),
+    path(
         "provider-profile/",
         ProviderProfileView.as_view(),
         name="provider-profile",
     ),
+
     path(
         "admin/mfa/verify/",
         AdminMFAVerifyView.as_view(),

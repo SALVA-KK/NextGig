@@ -6,6 +6,10 @@ from django.utils import timezone
 
 from .models import Application, Opportunity
 
+from django.db import transaction
+from apps.notifications.models import Notification
+from apps.notifications.services import create_notification
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,12 +100,33 @@ def notify_applicant_of_status_change(application_id):
 def close_expired_opportunities():
     """
     Celery Beat periodic task to close opportunities whose deadline has passed.
+    Handles each status transition and notification creation transactionally per opportunity.
     """
     today = timezone.now().date()
-    expired_opps = Opportunity.objects.filter(
-        status=Opportunity.Status.OPEN,
-        deadline__lt=today,
+    expired_opps = list(
+        Opportunity.objects.filter(
+            status=Opportunity.Status.OPEN,
+            deadline__lt=today,
+        ).select_related("poster")
     )
-    count = expired_opps.update(status=Opportunity.Status.CLOSED)
+    count = 0
+    for opp in expired_opps:
+        try:
+            with transaction.atomic():
+                opp.status = Opportunity.Status.CLOSED
+                opp.save(update_fields=["status", "updated_at"])
+                create_notification(
+                    recipient=opp.poster,
+                    actor=None,
+                    notification_type=Notification.NotificationType.OPPORTUNITY_EXPIRED,
+                    title="Opportunity Expired",
+                    message=f"Your opportunity '{opp.title}' has expired and was automatically closed.",
+                    opportunity=opp,
+                    event_key=f"opp_expire:{opp.id}",
+                )
+                count += 1
+        except Exception as e:
+            logger.error(f"Failed to close expired opportunity {opp.id}: {e}")
+
     logger.info(f"Celery Beat closed {count} expired opportunities on {today}.")
     return count

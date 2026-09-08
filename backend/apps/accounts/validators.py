@@ -61,3 +61,60 @@ class PasswordComplexityValidator:
             "Your password must be between 8 and 128 characters long and include at least "
             "one uppercase letter, one lowercase letter, one digit, and one special character."
         )
+
+
+MAX_RESUME_SIZE = 5 * 1024 * 1024  # 5 MB in bytes
+ALLOWED_RESUME_EXTENSIONS = [".pdf", ".docx"]
+
+
+def validate_resume_file(file):
+    """
+    Validates uploaded resume file:
+    - Must exist and be non-empty
+    - Must not exceed 5 MB in size
+    - Extension must be .pdf or .docx
+    - Validates file signature (magic bytes) to prevent executable/renamed file uploads.
+    """
+    import os
+
+    if not file:
+        raise ValidationError(_("Please select a resume file."))
+
+    file_size = getattr(file, "size", 0)
+    if not file_size or file_size == 0:
+        raise ValidationError(_("Uploaded file is empty. Please select a valid resume file."))
+
+    if file_size > MAX_RESUME_SIZE:
+        raise ValidationError(_("File is too large. Maximum allowed file size is 5 MB."))
+
+    filename = getattr(file, "name", "")
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext not in ALLOWED_RESUME_EXTENSIONS:
+        raise ValidationError(
+            _("Unsupported file type. Only PDF (.pdf) and Word (.docx) files are allowed.")
+        )
+
+    # Magic Bytes Inspection
+    try:
+        file.seek(0)
+        header = file.read(2048)
+        file.seek(0)
+    except Exception:
+        raise ValidationError(_("Unable to read uploaded file. Please select a valid file."))
+
+    if ext == ".pdf":
+        if not header.startswith(b"%PDF-"):
+            raise ValidationError(
+                _("Invalid or corrupted PDF file. Please select a genuine PDF document.")
+            )
+
+    elif ext == ".docx":
+        # DOCX files are OpenXML ZIP packages starting with PK\x03\x04
+        if not header.startswith(b"PK\x03\x04"):
+            raise ValidationError(
+                _("Invalid or corrupted Word document. Please select a genuine DOCX file.")
+            )
+
+    return file
+

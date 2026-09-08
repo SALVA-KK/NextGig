@@ -8,8 +8,9 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import CustomUser, PhoneOTP, Invitation, ProviderProfile
+from .models import CustomUser, PhoneOTP, Invitation, ProviderProfile, Resume
 from .utils import get_phone_lookup_variants, normalize_phone_number, verify_recaptcha_token
+
 
 
 class StudentRegistrationSerializer(serializers.ModelSerializer):
@@ -595,6 +596,67 @@ class ProviderProfileSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "is_verified", "created_at", "updated_at")
+
+
+class ResumeSerializer(serializers.ModelSerializer):
+    """
+    Serializer for retrieving metadata of an uploaded student resume.
+    Ensures download_url strictly points to the protected endpoint.
+    """
+
+    formatted_file_size = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Resume
+        fields = (
+            "id",
+            "original_filename",
+            "file_size",
+            "formatted_file_size",
+            "mime_type",
+            "uploaded_at",
+            "updated_at",
+            "download_url",
+        )
+        read_only_fields = fields
+
+    def get_formatted_file_size(self, obj):
+        size = obj.file_size
+        if size < 1024:
+            return f"{size} B"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        else:
+            return f"{size / (1024 * 1024):.2f} MB"
+
+    def get_download_url(self, obj):
+        return "/api/accounts/profile/resume/download/"
+
+
+class ResumeUploadSerializer(serializers.Serializer):
+    """
+    Serializer for resume file upload / replacement requests.
+    Enforces format, size, and magic bytes file validation.
+    """
+
+    file = serializers.FileField(
+        required=True,
+        error_messages={
+            "required": "Please select a resume file.",
+            "empty": "Uploaded file is empty. Please select a valid resume file.",
+        },
+    )
+
+    def validate_file(self, value):
+        from .validators import validate_resume_file
+
+        try:
+            return validate_resume_file(value)
+        except DjangoValidationError as exc:
+            messages = exc.messages if hasattr(exc, "messages") else [str(exc)]
+            raise serializers.ValidationError(messages[0] if len(messages) == 1 else messages)
+
 
 
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { authService } from '../../services/authService';
+import NotificationBell from './NotificationBell';
 
 export default function DashboardHeader({ title = 'Dashboard' }) {
   const user = authService.getCurrentUser();
@@ -19,6 +20,7 @@ export default function DashboardHeader({ title = 'Dashboard' }) {
     <header className="dashboard-header-bar">
       <h1 className="dashboard-header-title">{title}</h1>
       <div className="dashboard-header-user">
+        <NotificationBell />
         <div className="user-avatar-badge">{initial}</div>
         <div className="user-info-text">
           <span className="user-name">{displayName}</span>

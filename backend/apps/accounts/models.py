@@ -306,4 +306,77 @@ class ProviderProfile(models.Model):
         return f"{self.organization_name} ({self.user.email})"
 
 
+def resume_upload_to_path(instance, filename):
+    """
+    Generates a secure, non-colliding storage path for uploaded student resumes.
+    Saves under media/resumes/<uuid4><ext> to prevent directory traversal and filename collisions.
+    """
+    import os
+    import uuid
+
+    ext = os.path.splitext(filename)[1].lower()
+    unique_filename = f"{uuid.uuid4().hex}{ext}"
+    return os.path.join("resumes", unique_filename)
+
+
+class Resume(models.Model):
+    """
+    Model representing a student user's uploaded resume document on NextGig.
+    Maintains a OneToOne relationship with CustomUser so each student has exactly one current resume.
+    """
+
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="resume",
+        help_text=_("Student user owner of this resume."),
+    )
+
+    file = models.FileField(
+        _("uploaded file"),
+        upload_to=resume_upload_to_path,
+        help_text=_("Path to stored resume file."),
+    )
+
+    original_filename = models.CharField(
+        _("original filename"),
+        max_length=255,
+        help_text=_("Original filename provided during upload."),
+    )
+
+    file_size = models.PositiveIntegerField(
+        _("file size in bytes"),
+        help_text=_("Size of uploaded file in bytes."),
+    )
+
+    mime_type = models.CharField(
+        _("MIME type"),
+        max_length=100,
+        blank=True,
+        help_text=_("Detected MIME content type."),
+    )
+
+    uploaded_at = models.DateTimeField(
+        _("uploaded at"),
+        auto_now_add=True,
+        help_text=_("Timestamp when resume was initially uploaded."),
+    )
+
+    updated_at = models.DateTimeField(
+        _("updated at"),
+        auto_now=True,
+        help_text=_("Timestamp when resume was last updated/replaced."),
+    )
+
+    class Meta:
+        db_table = "resumes"
+        verbose_name = _("resume")
+        verbose_name_plural = _("resumes")
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"Resume of {self.user.email} ({self.original_filename})"
+
+
+
 

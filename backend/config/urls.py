@@ -24,6 +24,8 @@ urlpatterns = [
     path("api/accounts/", include("apps.accounts.urls")),
     # Opportunities API endpoints
     path("api/opportunities/", include("apps.opportunities.urls")),
+    # Notifications API endpoints
+    path("api/notifications/", include("apps.notifications.urls")),
     # Saved Opportunities endpoint
     path("api/saved-opportunities/", SavedOpportunityListView.as_view(), name="root-saved-opportunity-list"),
     # Applications API endpoints

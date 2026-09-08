@@ -30,4 +30,6 @@ backend/config/firebase-credentials.json
 # Celery Beat
 celerybeat-schedule*
 backend/celerybeat-schedule*
-
+
+# Django uploaded media
+backend/media/

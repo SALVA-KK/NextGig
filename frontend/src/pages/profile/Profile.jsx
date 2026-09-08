@@ -4,7 +4,9 @@ import ProfileHeader from '../../components/profile/ProfileHeader';
 import ProfileSection from '../../components/profile/ProfileSection';
 import ProfileField from '../../components/profile/ProfileField';
 import ChangePasswordCard from '../../components/profile/ChangePasswordCard';
+import ResumeCard from '../../components/profile/ResumeCard';
 import { authService } from '../../services/authService';
+
 
 export default function Profile() {
   const [profile, setProfile] = useState(null);
@@ -176,7 +178,11 @@ export default function Profile() {
                   </div>
                 </ProfileSection>
 
+                {/* SECTION: Resume & Opportunity Profile (Student Role) */}
+                {profile.role === 'student' && <ResumeCard />}
+
                 {/* Edit Mode Save & Cancel Floating Action Bar */}
+
                 {isEditing && (
                   <div className="profile-edit-actions-bar">
                     <button

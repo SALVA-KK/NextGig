@@ -2,10 +2,11 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import CustomUser, ProviderProfile
+from .models import CustomUser, ProviderProfile, Resume
 
 
 @admin.register(CustomUser)
+
 class CustomUserAdmin(BaseUserAdmin):
     """
     Admin panel configuration for CustomUser model.
@@ -153,4 +154,33 @@ class ProviderProfileAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+
+@admin.register(Resume)
+class ResumeAdmin(admin.ModelAdmin):
+    """
+    Admin panel configuration for Resume model.
+    Allows administrative inspection of student resume metadata without bypassing API privacy controls.
+    """
+
+    list_display = (
+        "user",
+        "original_filename",
+        "file_size",
+        "mime_type",
+        "uploaded_at",
+        "updated_at",
+    )
+
+    search_fields = (
+        "user__email",
+        "user__full_name",
+        "original_filename",
+    )
+
+    readonly_fields = (
+        "uploaded_at",
+        "updated_at",
+    )
+
 

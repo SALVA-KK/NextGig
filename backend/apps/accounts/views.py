@@ -3,22 +3,29 @@ import pyotp
 import secrets
 import time
 
+import mimetypes
 from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
+from django.core.files.storage import default_storage
+from django.db import transaction
+from django.http import FileResponse
 from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from .models import AdminMFA, CustomUser, PhoneOTP, Invitation, ProviderProfile
-from .permissions import IsAdminRole
+from apps.opportunities.permissions import IsVerifiedUser
+
+from .models import AdminMFA, CustomUser, PhoneOTP, Invitation, ProviderProfile, Resume
+from .permissions import IsAdminRole, IsStudentRole
 from .serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
@@ -30,10 +37,13 @@ from .serializers import (
     PublicInvitationSerializer,
     RequestOTPSerializer,
     ResetPasswordSerializer,
+    ResumeSerializer,
+    ResumeUploadSerializer,
     StudentRegistrationSerializer,
     UserProfileSerializer,
     VerifyOTPSerializer,
 )
+
 
 # OpenAPI Inline Serializers for Swagger Documentation
 AuthUserResponseSerializer = inline_serializer(
@@ -1252,6 +1262,174 @@ class ProviderProfileView(generics.RetrieveUpdateAPIView):
             },
         )
         return profile
+
+
+def get_user_resume(user):
+    """
+    Safely retrieves the student's Resume instance, returning None if no resume exists.
+    Catches Resume.DoesNotExist which is raised by Django OneToOne relation access.
+    """
+    if not user or not user.is_authenticated:
+        return None
+    try:
+        return user.resume
+    except Resume.DoesNotExist:
+        return None
+
+
+class StudentResumeView(APIView):
+    """
+    API endpoint for student users to upload, view, replace, and delete their resume.
+    Access is strictly restricted to authenticated and verified student accounts.
+    """
+
+    permission_classes = [IsAuthenticated, IsVerifiedUser, IsStudentRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Get current student resume",
+        description="Retrieve metadata for the current authenticated student's uploaded resume.",
+        responses={200: ResumeSerializer},
+    )
+    def get(self, request):
+        resume = get_user_resume(request.user)
+        if not resume or not resume.file:
+            return Response(
+                {"detail": "No resume uploaded yet.", "resume": None},
+                status=status.HTTP_200_OK,
+            )
+        serializer = ResumeSerializer(resume)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Upload or replace student resume",
+        description="Upload a new resume file or replace an existing resume. Validates file size (max 5MB), extension (.pdf, .docx), and magic bytes header.",
+        request=ResumeUploadSerializer,
+        responses={200: ResumeSerializer, 201: ResumeSerializer, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        serializer = ResumeUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        uploaded_file = serializer.validated_data["file"]
+        filename = getattr(uploaded_file, "name", "resume")
+        file_size = getattr(uploaded_file, "size", 0)
+
+        # Detect MIME type
+        content_type = getattr(uploaded_file, "content_type", "")
+        if not content_type or content_type == "application/octet-stream":
+            guessed_type, _ = mimetypes.guess_type(filename)
+            content_type = guessed_type or "application/octet-stream"
+
+        old_file_path = None
+        existing_resume = get_user_resume(request.user)
+
+        with transaction.atomic():
+            if existing_resume and existing_resume.file:
+                old_file_path = existing_resume.file.name
+
+            if existing_resume:
+                existing_resume.file = uploaded_file
+                existing_resume.original_filename = filename
+                existing_resume.file_size = file_size
+                existing_resume.mime_type = content_type
+                existing_resume.save()
+                resume_instance = existing_resume
+                created = False
+            else:
+                resume_instance = Resume.objects.create(
+                    user=request.user,
+                    file=uploaded_file,
+                    original_filename=filename,
+                    file_size=file_size,
+                    mime_type=content_type,
+                )
+                created = True
+
+        # Clean up old physical file from storage safely AFTER database transaction succeeds
+        if old_file_path and old_file_path != resume_instance.file.name:
+            try:
+                if default_storage.exists(old_file_path):
+                    default_storage.delete(old_file_path)
+            except Exception as exc:
+                logging.warning(f"Failed to delete old resume file '{old_file_path}': {exc}")
+
+        response_serializer = ResumeSerializer(resume_instance)
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(response_serializer.data, status=status_code)
+
+    @extend_schema(
+        summary="Delete student resume",
+        description="Delete the current authenticated student's uploaded resume document and file storage.",
+        responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def delete(self, request):
+        resume = get_user_resume(request.user)
+        if not resume:
+            return Response(
+                {"detail": "No resume found to delete."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        file_path = resume.file.name if resume.file else None
+        resume.delete()
+
+        # Clear cached relation on request.user instance if present
+        if hasattr(request.user, "_state") and hasattr(request.user._state, "fields_cache"):
+            request.user._state.fields_cache.pop("resume", None)
+
+        if file_path:
+
+            try:
+                if default_storage.exists(file_path):
+                    default_storage.delete(file_path)
+            except Exception as exc:
+                logging.warning(f"Failed to delete resume file '{file_path}': {exc}")
+
+        return Response(
+            {"detail": "Resume deleted successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class StudentResumeDownloadView(APIView):
+    """
+    API endpoint to securely download / open the authenticated student's resume file.
+    Does NOT expose public file paths; checks authentication, identity verification, and ownership.
+    """
+
+    permission_classes = [IsAuthenticated, IsVerifiedUser, IsStudentRole]
+
+    @extend_schema(
+        summary="Download student resume",
+        description="Stream the current authenticated student's uploaded resume file securely.",
+        responses={200: OpenApiTypes.BINARY, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        resume = get_user_resume(request.user)
+        if not resume or not resume.file:
+            return Response(
+                {"detail": "Resume file not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            file_handle = resume.file.open("rb")
+        except Exception:
+            return Response(
+                {"detail": "Resume file could not be accessed from storage."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        response = FileResponse(
+            file_handle,
+            content_type=resume.mime_type or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'inline; filename="{resume.original_filename}"'
+        return response
+
+
 
 
 

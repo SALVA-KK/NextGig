@@ -1,6 +1,6 @@
 import logging
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
 from rest_framework.pagination import PageNumberPagination
@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.notifications.models import Notification
+from apps.notifications.services import create_notification
 from .models import Application, Opportunity, SavedOpportunity
 from .permissions import IsApplicantOrPoster, IsOwnerOrReadOnly, IsVerifiedUser
 from .serializers import (
@@ -299,21 +301,34 @@ class ApplicationCreateView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            application = serializer.save(
-                applicant=request.user,
-                opportunity=opportunity,
-            )
+            with transaction.atomic():
+                application = serializer.save(
+                    applicant=request.user,
+                    opportunity=opportunity,
+                )
+                create_notification(
+                    recipient=opportunity.poster,
+                    actor=request.user,
+                    notification_type=Notification.NotificationType.NEW_APPLICATION,
+                    title="New Application Received",
+                    message=f"{request.user.full_name or request.user.email} applied for your opportunity '{opportunity.title}'.",
+                    opportunity=opportunity,
+                    application=application,
+                    event_key=f"new_app:{application.id}",
+                )
+                # Schedule async email notification after transaction commits safely
+                def enqueue_email():
+                    try:
+                        notify_poster_of_new_application.delay(application.id)
+                    except Exception as e:
+                        logger.warning(f"Failed to enqueue poster notification task: {e}")
+
+                transaction.on_commit(enqueue_email)
         except IntegrityError:
             return Response(
                 {"detail": "You have already applied to this opportunity."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        # Trigger async email notification with graceful fallback if Redis is offline
-        try:
-            notify_poster_of_new_application.delay(application.id)
-        except Exception as e:
-            logger.warning(f"Failed to enqueue poster notification task: {e}")
 
         output_serializer = ApplicationSerializer(application)
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
@@ -418,6 +433,7 @@ class ApplicationStatusUpdateView(APIView):
         is_applicant = application.applicant == user
 
         new_status = request.data.get("status")
+        old_status = application.status
 
         if is_applicant and not is_poster:
             # Applicant withdrawal flow
@@ -433,8 +449,20 @@ class ApplicationStatusUpdateView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            application.status = Application.Status.WITHDRAWN
-            application.save()
+            with transaction.atomic():
+                application.status = Application.Status.WITHDRAWN
+                application.save()
+                create_notification(
+                    recipient=application.opportunity.poster,
+                    actor=user,
+                    notification_type=Notification.NotificationType.APPLICATION_WITHDRAWN,
+                    title="Application Withdrawn",
+                    message=f"{user.full_name or user.email} withdrew their application for '{application.opportunity.title}'.",
+                    opportunity=application.opportunity,
+                    application=application,
+                    event_key=f"app_withdraw:{application.id}",
+                )
+
             output_serializer = ApplicationSerializer(application)
             return Response(output_serializer.data, status=status.HTTP_200_OK)
 
@@ -447,13 +475,28 @@ class ApplicationStatusUpdateView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        application = serializer.save()
+        # Only update DB, create notification, and send email if status actually changes
+        if old_status != serializer.validated_data.get("status"):
+            with transaction.atomic():
+                application = serializer.save()
+                status_display = application.get_status_display()
+                create_notification(
+                    recipient=application.applicant,
+                    actor=user,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title=f"Application {status_display}",
+                    message=f"Your application for '{application.opportunity.title}' was updated to: {status_display}.",
+                    opportunity=application.opportunity,
+                    application=application,
+                    event_key=f"app_status:{application.id}:{old_status}->{application.status}",
+                )
+                def enqueue_status_email():
+                    try:
+                        notify_applicant_of_status_change.delay(application.id)
+                    except Exception as e:
+                        logger.warning(f"Failed to enqueue applicant notification task: {e}")
 
-        # Notify applicant of poster-initiated status change
-        try:
-            notify_applicant_of_status_change.delay(application.id)
-        except Exception as e:
-            logger.warning(f"Failed to enqueue applicant notification task: {e}")
+                transaction.on_commit(enqueue_status_email)
 
         output_serializer = ApplicationSerializer(application)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
