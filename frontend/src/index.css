@@ -65,7 +65,10 @@ body {
   justify-content: center;
   gap: 10px;
   margin-bottom: 24px;
+  text-decoration: none;
+  cursor: pointer;
 }
+
 
 .brand-logo {
   width: 36px;

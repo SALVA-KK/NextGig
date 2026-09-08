@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 /**
  * Reusable authentication layout wrapper for centering cards,
@@ -9,10 +10,11 @@ export default function AuthLayout({ children, title, subtitle }) {
     <div className="auth-container">
       <div className="auth-card">
         {/* NextGig Branding Badge */}
-        <div className="auth-brand">
+        <Link to="/" className="auth-brand">
           <div className="brand-logo">N</div>
           <span className="brand-name">NextGig</span>
-        </div>
+        </Link>
+
 
         {/* Dynamic Title & Subtitle */}
         {title && <h1 className="auth-title">{title}</h1>}
