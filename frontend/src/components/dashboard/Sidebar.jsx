@@ -14,6 +14,8 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
     navigate('/login', { replace: true });
   };
 
+  const brandLink = isAdmin ? '/admin' : isProvider ? '/provider-dashboard' : '/dashboard';
+
   const handleTabClick = (tabName) => {
     if (setActiveTab) setActiveTab(tabName);
     const targetPath = isProvider ? '/provider-dashboard' : '/dashboard';
@@ -24,6 +26,7 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
   };
 
   return (
+
     <>
       {/* Backdrop for Mobile Sidebar Drawer */}
       {isOpen && <div className="sidebar-overlay" onClick={onClose}></div>}
