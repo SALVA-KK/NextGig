@@ -46,6 +46,8 @@ export default function Login() {
       const role = authService.getUserRole();
       if (role === 'admin') {
         navigate('/admin', { replace: true });
+      } else if (role === 'provider') {
+        navigate('/provider-dashboard', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }
@@ -77,10 +79,13 @@ export default function Login() {
     const role = user?.role || authService.getUserRole();
     if (role === 'admin') {
       navigate('/admin', { replace: true });
+    } else if (role === 'provider') {
+      navigate('/provider-dashboard', { replace: true });
     } else {
       navigate('/dashboard', { replace: true });
     }
   };
+
 
 
   // Google OAuth Login Handler

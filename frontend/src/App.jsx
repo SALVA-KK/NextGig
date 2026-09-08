@@ -8,6 +8,7 @@ import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import InvitePage from './pages/auth/InvitePage';
 import UserDashboard from './pages/dashboard/UserDashboard';
+import ProviderDashboard from './pages/dashboard/ProviderDashboard';
 import Profile from './pages/profile/Profile';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminMFAChallenge from './pages/auth/AdminMFAChallenge';
@@ -29,8 +30,16 @@ function App() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={['student']}>
               <UserDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/provider-dashboard"
+          element={
+            <ProtectedRoute allowedRoles={['provider']}>
+              <ProviderDashboard />
             </ProtectedRoute>
           }
         />
@@ -59,12 +68,12 @@ function App() {
           }
         />
         {/* Default Redirect to Login */}
-        {/* Default Redirect to Login */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>
   );
 }
+
 
 export default App;
 

@@ -62,6 +62,18 @@ export default function DashboardHeader({
     }
   };
 
+  const isProvider = user?.role === 'provider';
+  const isAdmin = user?.role === 'admin';
+  const brandLink = isAdmin ? '/admin' : isProvider ? '/provider-dashboard' : '/dashboard';
+
+  const handleNavClick = (tabName) => {
+    if (setActiveTab) setActiveTab(tabName);
+    const targetPath = isProvider ? '/provider-dashboard' : '/dashboard';
+    if (location.pathname !== targetPath) {
+      navigate(targetPath);
+    }
+  };
+
   return (
     <header className="header-bar">
       <div className="header-left">
@@ -77,33 +89,33 @@ export default function DashboardHeader({
           </svg>
         </button>
 
-        <Link to="/dashboard" className="header-brand">
+        <Link to={brandLink} className="header-brand">
           <div className="header-logo">N</div>
           <span className="header-brand-title">NextGig</span>
         </Link>
 
-        {setActiveTab && (
+        {setActiveTab && !isProvider && (
           <nav className="header-quick-nav">
             <button
-              onClick={() => setActiveTab('opportunities')}
+              onClick={() => handleNavClick('opportunities')}
               className={`header-nav-btn ${activeTab === 'opportunities' ? 'active' : ''}`}
             >
               Explore
             </button>
             <button
-              onClick={() => setActiveTab('collaborations')}
+              onClick={() => handleNavClick('collaborations')}
               className={`header-nav-btn ${activeTab === 'collaborations' ? 'active' : ''}`}
             >
               Find Students
             </button>
             <button
-              onClick={() => setActiveTab('saved')}
+              onClick={() => handleNavClick('saved')}
               className={`header-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
             >
               Saved
             </button>
             <button
-              onClick={() => setActiveTab('applications')}
+              onClick={() => handleNavClick('applications')}
               className={`header-nav-btn ${activeTab === 'applications' ? 'active' : ''}`}
             >
               Applications
@@ -111,6 +123,7 @@ export default function DashboardHeader({
           </nav>
         )}
       </div>
+
 
       <div className="header-right">
         <NotificationBell />

@@ -83,5 +83,48 @@ export const opportunityService = {
       console.warn('Failed to fetch applications', error);
       return [];
     }
+  },
+
+  /**
+   * Create a new opportunity (POST /api/opportunities/)
+   */
+  async createOpportunity(data) {
+    const response = await api.post('/opportunities/', data);
+    return response.data;
+  },
+
+  /**
+   * Update an existing opportunity (PATCH /api/opportunities/<id>/)
+   */
+  async updateOpportunity(id, data) {
+    const response = await api.patch(`/opportunities/${id}/`, data);
+    return response.data;
+  },
+
+  /**
+   * Delete an opportunity (DELETE /api/opportunities/<id>/)
+   */
+  async deleteOpportunity(id) {
+    const response = await api.delete(`/opportunities/${id}/`);
+    return response.data;
+  },
+
+  /**
+   * Get applicants for a specific opportunity (GET /api/opportunities/<id>/applicants/)
+   */
+  async getOpportunityApplicants(id) {
+    const response = await api.get(`/opportunities/${id}/applicants/`);
+    const data = response.data;
+    const results = Array.isArray(data) ? data : (data?.results || []);
+    return results;
+  },
+
+  /**
+   * Update application status (PATCH /api/applications/<id>/status/)
+   */
+  async updateApplicationStatus(applicationId, status) {
+    const response = await api.patch(`/applications/${applicationId}/status/`, { status });
+    return response.data;
   }
 };
+

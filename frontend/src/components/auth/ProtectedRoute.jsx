@@ -44,9 +44,11 @@ export default function ProtectedRoute({ children, allowedRoles }) {
   if (allowedRoles && allowedRoles.length > 0) {
     const userRole = user?.role;
     if (!userRole || !allowedRoles.includes(userRole)) {
-      return <Navigate to="/dashboard" replace />;
+      const targetPath = userRole === 'admin' ? '/admin' : userRole === 'provider' ? '/provider-dashboard' : '/dashboard';
+      return <Navigate to={targetPath} replace />;
     }
   }
 
   return children;
 }
+

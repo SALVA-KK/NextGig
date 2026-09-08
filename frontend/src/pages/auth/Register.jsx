@@ -30,6 +30,8 @@ export default function Register() {
       const role = authService.getUserRole();
       if (role === 'admin') {
         navigate('/admin', { replace: true });
+      } else if (role === 'provider') {
+        navigate('/provider-dashboard', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }
@@ -40,10 +42,13 @@ export default function Register() {
     const role = user?.role || authService.getUserRole();
     if (role === 'admin') {
       navigate('/admin', { replace: true });
+    } else if (role === 'provider') {
+      navigate('/provider-dashboard', { replace: true });
     } else {
       navigate('/dashboard', { replace: true });
     }
   };
+
 
   const handleGoogleSuccess = async (credentialResponse) => {
     if (!credentialResponse?.credential) return;
