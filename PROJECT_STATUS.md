@@ -195,11 +195,12 @@
 - **Applications (apply/withdraw/track status)**: **Done** (`Application` model, `ApplicationSerializer`, `ApplicantListSerializer`, `ApplicationCreateSerializer`, `ApplicationStatusUpdateSerializer`, `IsApplicantOrPoster` permission, async Celery email notifications, rate limit `20/hour`)
 - **Search & filters**: **Partially Done** (Query param filtering on `category`, `work_mode`, `city`, and `status` in `/api/opportunities/`)
 - **Location-based search**: **Not Started** (Geo-distance calculation/bounding box queries not implemented)
-- **Resume upload**: **Not Started**
+- **Resume upload**: **Done** (`Resume` model, OneToOne student relationship, `[IsAuthenticated, IsVerifiedUser, IsStudentRole]` permissions, magic-bytes inspection for PDF/DOCX, max 5MB size limit, atomic replacement, protected owner download endpoint `/api/accounts/profile/resume/download/`, provider application resume download endpoint `/api/applications/<id>/resume/`, upload rate limit `10/hour`, React `ResumeCard` UI integration, full unit tests)
 - **Reviews/ratings**: **Not Started**
-- **Notifications (in-app)**: **Not Started** (Async email notifications active via Celery; in-app notification center pending UI)
+- **Notifications (in-app)**: **Done** (`Notification` model, `NotificationSerializer`, `NotificationListView`, `NotificationMarkReadView`, notification service, header bell icon badge dropdown UI, Celery email notifications)
 - **Direct contact / messaging**: **Not Started**
 - **Admin panel/management**: **Partially Done** (Django Admin registered for all models; Admin MFA setup active)
+
 
 ---
 

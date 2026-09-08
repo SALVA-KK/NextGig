@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import ProfileHeader from '../../components/profile/ProfileHeader';
 import ProfileSection from '../../components/profile/ProfileSection';
@@ -6,7 +6,6 @@ import ProfileField from '../../components/profile/ProfileField';
 import ChangePasswordCard from '../../components/profile/ChangePasswordCard';
 import ResumeCard from '../../components/profile/ResumeCard';
 import { authService } from '../../services/authService';
-
 
 export default function Profile() {
   const [profile, setProfile] = useState(null);
@@ -23,26 +22,28 @@ export default function Profile() {
 
   // Fetch Profile on Mount
   useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
-    setLoading(true);
-    try {
-      const data = await authService.getProfile();
-      setProfile(data);
-      setFullName(data.full_name || '');
-      setPhoneNumber(data.phone_number || '');
-    } catch (err) {
-      console.error('[Profile] fetchProfile error:', err);
-      setMessage({
-        type: 'error',
-        text: err.message || 'Failed to load profile data.',
+    let isMounted = true;
+    authService.getProfile()
+      .then(data => {
+        if (!isMounted) return;
+        setProfile(data);
+        setFullName(data.full_name || '');
+        setPhoneNumber(data.phone_number || '');
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        console.error('[Profile] fetchProfile error:', err);
+        setMessage({
+          type: 'error',
+          text: err.message || 'Failed to load profile data.',
+        });
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
       });
-    } finally {
-      setLoading(false);
-    }
-  };
+
+    return () => { isMounted = false; };
+  }, []);
 
   const handleEditClick = () => {
     setMessage(null);
@@ -104,7 +105,8 @@ export default function Profile() {
       <div className="profile-container">
         {loading ? (
           <div className="profile-loading-state">
-            <p>Loading profile information...</p>
+            <div className="skeleton-line title" style={{ width: '200px', height: '28px', marginBottom: '16px' }}></div>
+            <div className="skeleton-card" style={{ height: '140px' }}></div>
           </div>
         ) : profile ? (
           <>
@@ -119,7 +121,7 @@ export default function Profile() {
 
             {/* Alert Feedback Banner */}
             {message && (
-              <div className={`alert-banner alert-${message.type}`} style={{ marginBottom: '20px' }}>
+              <div className={`alert-banner alert-${message.type}`}>
                 {message.text}
               </div>
             )}
@@ -146,7 +148,7 @@ export default function Profile() {
                     <ProfileField
                       id="role"
                       label="Account Role"
-                      value={profile.role}
+                      value={profile.role ? profile.role.toUpperCase() : 'STUDENT'}
                       readOnly
                       isEditing={isEditing}
                     />
@@ -178,11 +180,7 @@ export default function Profile() {
                   </div>
                 </ProfileSection>
 
-                {/* SECTION: Resume & Opportunity Profile (Student Role) */}
-                {profile.role === 'student' && <ResumeCard />}
-
-                {/* Edit Mode Save & Cancel Floating Action Bar */}
-
+                {/* Edit Mode Save & Cancel Bar */}
                 {isEditing && (
                   <div className="profile-edit-actions-bar">
                     <button
@@ -204,6 +202,9 @@ export default function Profile() {
                   </div>
                 )}
               </form>
+
+              {/* SECTION: Resume & Opportunity Profile (Student Role) */}
+              {(profile.role === 'student' || !profile.role) && <ResumeCard />}
 
               {/* SECTION 3: Account Security */}
               <ProfileSection

@@ -1,6 +1,7 @@
 import logging
 
 from django.db import IntegrityError, transaction
+from django.http import FileResponse
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
 from rest_framework.pagination import PageNumberPagination
@@ -8,6 +9,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+
+from apps.accounts.views import get_user_resume
+
 
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
@@ -500,4 +504,64 @@ class ApplicationStatusUpdateView(APIView):
 
         output_serializer = ApplicationSerializer(application)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+
+class ApplicationResumeDownloadView(APIView):
+    """
+    API endpoint for opportunity posters (or administrators) to view/download an applicant's resume.
+    Access is strictly restricted to:
+    - The poster of the opportunity (application.opportunity.poster == request.user)
+    - Platform administrators / staff (user.role == 'admin' or user.is_staff)
+    Rejects all other users, including other providers (403 Forbidden).
+    """
+
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+
+    @extend_schema(
+        summary="Download applicant resume for an opportunity",
+        description="Streams the applicant's resume file. Strictly restricted to the opportunity poster or admin.",
+        responses={200: OpenApiTypes.BINARY, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, pk, *args, **kwargs):
+        application = generics.get_object_or_404(
+            Application.objects.select_related("opportunity", "opportunity__poster", "applicant"),
+            pk=pk,
+        )
+
+        user = request.user
+        is_poster = (
+            application.opportunity.poster == user
+            or getattr(user, "role", None) == "admin"
+            or getattr(user, "is_staff", False)
+        )
+
+        if not is_poster:
+            return Response(
+                {"detail": "You do not have permission to view this applicant's resume."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        resume = get_user_resume(application.applicant)
+
+        if not resume or not resume.file:
+            return Response(
+                {"detail": "Applicant has not uploaded a resume."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            file_handle = resume.file.open("rb")
+        except Exception:
+            return Response(
+                {"detail": "Applicant resume file could not be accessed from storage."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        response = FileResponse(
+            file_handle,
+            content_type=resume.mime_type or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'inline; filename="{resume.original_filename}"'
+        return response
+
 

@@ -46,9 +46,8 @@ def verify_google_id_token(token):
         }
     except ValueError as exc:
         logger.warning("[GOOGLE_OAUTH_VERIFY_FAILURE] ValueError: %s | audience=%s", exc, client_id)
-        print(f"[GOOGLE_OAUTH_EXACT_ERROR] ValueError: {exc} | Audience used: {client_id}")
         return None
     except Exception as exc:
         logger.error("[GOOGLE_OAUTH_VERIFY_FAILURE] Exception (%s): %s | audience=%s", type(exc).__name__, exc, client_id)
-        print(f"[GOOGLE_OAUTH_EXACT_ERROR] Exception ({type(exc).__name__}): {exc} | Audience used: {client_id}")
         return None
+

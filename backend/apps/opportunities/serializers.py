@@ -112,7 +112,7 @@ class OpportunityCreateUpdateSerializer(serializers.ModelSerializer):
         """
         Validate that the deadline is not in the past.
         """
-        if value and value < timezone.now().date():
+        if value and value < timezone.localdate():
             raise serializers.ValidationError("Deadline cannot be in the past.")
         return value
 
@@ -174,10 +174,12 @@ class ApplicationSerializer(serializers.ModelSerializer):
 class ApplicantListSerializer(serializers.ModelSerializer):
     """
     Serializer for opportunity posters viewing applicants to their opportunity.
-    Nests applicant user details alongside cover_note, status, and applied_at.
+    Nests applicant user details alongside cover_note, status, applied_at, and applicant resume metadata.
     """
 
     applicant = PosterPublicSerializer(read_only=True)
+    has_resume = serializers.SerializerMethodField()
+    resume_download_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Application
@@ -187,8 +189,25 @@ class ApplicantListSerializer(serializers.ModelSerializer):
             "status",
             "cover_note",
             "applied_at",
+            "has_resume",
+            "resume_download_url",
         )
         read_only_fields = fields
+
+    def get_has_resume(self, obj):
+        from apps.accounts.views import get_user_resume
+
+        resume = get_user_resume(obj.applicant)
+        return bool(resume and resume.file)
+
+    def get_resume_download_url(self, obj):
+        from apps.accounts.views import get_user_resume
+
+        resume = get_user_resume(obj.applicant)
+        if resume and resume.file:
+            return f"/api/applications/{obj.id}/resume/"
+        return None
+
 
 
 class ApplicationCreateSerializer(serializers.ModelSerializer):

@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -140,7 +141,7 @@ class OpportunityAPITests(APITestCase):
             "category": "part_time",
             "work_mode": "remote",
             "pay_type": "unpaid",
-            "deadline": str(date.today() - timedelta(days=1)),
+            "deadline": str(timezone.localdate() - timedelta(days=2)),
         }
         resp = self.client.post(self.list_create_url, payload_past)
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -422,6 +423,14 @@ class ApplicationTests(APITestCase):
             is_verified=True,
         )
 
+        self.admin = User.objects.create_user(
+            email="admin_app@example.com",
+            password="Password123!",
+            full_name="Admin User",
+            role="admin",
+            is_verified=True,
+        )
+
         self.open_opp = Opportunity.objects.create(
             poster=self.poster,
             title="Django Backend Intern",
@@ -631,5 +640,103 @@ class ApplicationTests(APITestCase):
 
         self.assertEqual(past_opp.status, Opportunity.Status.CLOSED)
         self.assertEqual(future_opp.status, Opportunity.Status.OPEN)
+
+    def test_poster_and_admin_can_download_applicant_resume(self):
+        """Poster of opportunity and admin can download applicant's resume via /api/applications/<id>/resume/."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.accounts.models import Resume
+
+        resume = Resume.objects.create(
+            user=self.student,
+            file=SimpleUploadedFile("applicant_resume.pdf", b"%PDF-1.5 sample content", content_type="application/pdf"),
+            original_filename="applicant_resume.pdf",
+            file_size=200,
+            mime_type="application/pdf",
+        )
+
+        app = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.open_opp,
+            cover_note="Please see my resume",
+        )
+
+        resume_download_url = f"/api/applications/{app.pk}/resume/"
+
+        # 1. Poster access succeeds
+        self.client.force_authenticate(user=self.poster)
+        res_poster = self.client.get(resume_download_url)
+        self.assertEqual(res_poster.status_code, status.HTTP_200_OK)
+        self.assertIn("applicant_resume.pdf", res_poster["Content-Disposition"])
+
+        # 2. Admin access succeeds
+        self.client.force_authenticate(user=self.admin)
+        res_admin = self.client.get(resume_download_url)
+        self.assertEqual(res_admin.status_code, status.HTTP_200_OK)
+
+    def test_non_poster_provider_cannot_download_applicant_resume(self):
+        """A provider who did NOT post this opportunity gets 403 Forbidden when accessing applicant's resume."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.accounts.models import Resume
+
+        Resume.objects.create(
+            user=self.student,
+            file=SimpleUploadedFile("applicant_resume.pdf", b"%PDF-1.5 sample content", content_type="application/pdf"),
+            original_filename="applicant_resume.pdf",
+            file_size=200,
+            mime_type="application/pdf",
+        )
+
+        app = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.open_opp,
+            cover_note="Please see my resume",
+        )
+
+        # Create another provider account (not poster of self.open_opp)
+        other_provider = User.objects.create_user(
+            email="otherprovider@example.com",
+            password="Password123!",
+            full_name="Other Provider",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        resume_download_url = f"/api/applications/{app.pk}/resume/"
+
+        # Non-poster provider is denied with 403 Forbidden
+        self.client.force_authenticate(user=other_provider)
+        res_other = self.client.get(resume_download_url)
+        self.assertEqual(res_other.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_other.data["detail"], "You do not have permission to view this applicant's resume.")
+
+    def test_applicant_list_serializer_includes_resume_download_url(self):
+        """Applicant list endpoint outputs has_resume: True and resume_download_url for posters."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.accounts.models import Resume
+
+        Resume.objects.create(
+            user=self.student,
+            file=SimpleUploadedFile("resume.pdf", b"%PDF-1.5 test", content_type="application/pdf"),
+            original_filename="resume.pdf",
+            file_size=100,
+            mime_type="application/pdf",
+        )
+
+        app = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.open_opp,
+            cover_note="Hi there",
+        )
+
+        applicants_url = f"/api/opportunities/{self.open_opp.pk}/applicants/"
+        self.client.force_authenticate(user=self.poster)
+
+        res = self.client.get(applicants_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", res.data)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["has_resume"])
+        self.assertEqual(results[0]["resume_download_url"], f"/api/applications/{app.pk}/resume/")
+
 
 

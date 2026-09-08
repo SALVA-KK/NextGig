@@ -13,6 +13,7 @@ from drf_spectacular.views import (
 )
 
 from apps.opportunities.views import (
+    ApplicationResumeDownloadView,
     ApplicationStatusUpdateView,
     MyApplicationsListView,
     SavedOpportunityListView,
@@ -31,6 +32,8 @@ urlpatterns = [
     # Applications API endpoints
     path("api/applications/", MyApplicationsListView.as_view(), name="root-my-applications-list"),
     path("api/applications/<int:pk>/status/", ApplicationStatusUpdateView.as_view(), name="root-application-status-update"),
+    path("api/applications/<int:pk>/resume/", ApplicationResumeDownloadView.as_view(), name="root-application-resume-download"),
+
     # OpenAPI 3 Schema & API Documentation UI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
