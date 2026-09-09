@@ -3,6 +3,7 @@ import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import OpportunityFilters from '../../components/opportunities/OpportunityFilters';
 import OpportunityCard from '../../components/opportunities/OpportunityCard';
 import StudentCollabCard from '../../components/opportunities/StudentCollabCard';
+import PaginationControl from '../../components/common/PaginationControl';
 import { opportunityService } from '../../services/opportunityService';
 
 export default function UserDashboard() {
@@ -13,6 +14,10 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [locationQuery, setLocationQuery] = useState('');
@@ -22,24 +27,46 @@ export default function UserDashboard() {
   // Detail Modal state
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
 
+  // Reset page to 1 when filters or active tab change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, selectedCategory, selectedWorkMode, locationQuery, searchQuery]);
+
   // Fetch initial opportunities and user state
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
+      const categoryParam = activeTab === 'collaborations'
+        ? 'project_collaboration'
+        : (selectedCategory || undefined);
+
       const [oppsData, savedData, appsData] = await Promise.all([
         opportunityService.getOpportunities({
-          category: selectedCategory || undefined,
+          page: (activeTab === 'opportunities' || activeTab === 'collaborations') ? currentPage : 1,
+          category: categoryParam,
           work_mode: selectedWorkMode || undefined,
           city: locationQuery || undefined
         }),
-        opportunityService.getSavedOpportunities(),
-        opportunityService.getMyApplications()
+        opportunityService.getSavedOpportunities({ page: activeTab === 'saved' ? currentPage : 1 }),
+        opportunityService.getMyApplications({ page: activeTab === 'applications' ? currentPage : 1 })
       ]);
 
-      setOpportunities(oppsData.results || []);
-      setSavedItems(savedData || []);
-      setApplications(appsData || []);
+      const oppsList = oppsData.results || [];
+      const savedList = savedData.results || [];
+      const appsList = appsData.results || [];
+
+      setOpportunities(oppsList);
+      setSavedItems(savedList);
+      setApplications(appsList);
+
+      if (activeTab === 'opportunities' || activeTab === 'collaborations') {
+        setTotalCount(oppsData.count ?? oppsList.length);
+      } else if (activeTab === 'saved') {
+        setTotalCount(savedData.count ?? savedList.length);
+      } else if (activeTab === 'applications') {
+        setTotalCount(appsData.count ?? appsList.length);
+      }
     } catch (err) {
       console.error('Failed to load opportunities:', err);
       setError('Unable to load opportunities right now. Please check your connection and try again.');
@@ -50,7 +77,7 @@ export default function UserDashboard() {
 
   useEffect(() => {
     loadData();
-  }, [selectedCategory, selectedWorkMode, locationQuery]);
+  }, [currentPage, activeTab, selectedCategory, selectedWorkMode, locationQuery]);
 
   // Derived sets for quick O(1) checks
   const savedIdsSet = useMemo(() => {
@@ -347,6 +374,16 @@ export default function UserDashboard() {
               </div>
             )}
           </>
+        )}
+
+        {/* PAGINATION CONTROL */}
+        {!loading && !error && (
+          <PaginationControl
+            currentPage={currentPage}
+            totalItems={totalCount}
+            pageSize={20}
+            onPageChange={(newPage) => setCurrentPage(newPage)}
+          />
         )}
 
       </div>

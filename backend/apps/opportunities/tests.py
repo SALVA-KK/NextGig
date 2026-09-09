@@ -739,4 +739,118 @@ class ApplicationTests(APITestCase):
         self.assertEqual(results[0]["resume_download_url"], f"/api/applications/{app.pk}/resume/")
 
 
+class ReceivedApplicationsAPITests(APITestCase):
+    """
+    Test suite for GET /api/applications/received/ provider endpoint.
+    """
+
+    def setUp(self):
+        # Provider 1
+        self.provider1 = User.objects.create_user(
+            email="provider1@example.com",
+            password="Password123!",
+            full_name="Provider One",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        # Provider 2
+        self.provider2 = User.objects.create_user(
+            email="provider2@example.com",
+            password="Password123!",
+            full_name="Provider Two",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        # Student user
+        self.student = User.objects.create_user(
+            email="student_received@example.com",
+            password="Password123!",
+            full_name="Student User",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+
+        # Provider 1 Opportunities
+        self.opp1 = Opportunity.objects.create(
+            poster=self.provider1,
+            title="P1 React Listing",
+            description="Build frontend",
+            category=Opportunity.Category.INTERNSHIP,
+            status=Opportunity.Status.OPEN,
+        )
+        self.opp2 = Opportunity.objects.create(
+            poster=self.provider1,
+            title="P1 Django Listing",
+            description="Build backend",
+            category=Opportunity.Category.PART_TIME,
+            status=Opportunity.Status.OPEN,
+        )
+
+        # Provider 2 Opportunity
+        self.opp3 = Opportunity.objects.create(
+            poster=self.provider2,
+            title="P2 Design Listing",
+            description="Build UI",
+            category=Opportunity.Category.FREELANCE,
+            status=Opportunity.Status.OPEN,
+        )
+
+        # Create Applications
+        self.app1 = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.opp1,
+            cover_note="Cover 1",
+        )
+        self.app2 = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.opp2,
+            cover_note="Cover 2",
+        )
+        self.app3 = Application.objects.create(
+            applicant=self.student,
+            opportunity=self.opp3,
+            cover_note="Cover 3",
+        )
+
+        self.received_url = reverse("root-received-applications-list")
+
+    def test_provider_can_only_see_their_own_received_applications(self):
+        """Provider 1 sees only applications for opportunities they posted."""
+        self.client.force_authenticate(user=self.provider1)
+        res = self.client.get(self.received_url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        self.assertEqual(len(results), 2)
+
+        retrieved_opp_titles = [app_data["opportunity"]["title"] for app_data in results]
+        self.assertIn("P1 React Listing", retrieved_opp_titles)
+        self.assertIn("P1 Django Listing", retrieved_opp_titles)
+        self.assertNotIn("P2 Design Listing", retrieved_opp_titles)
+
+    def test_provider2_sees_only_their_received_applications(self):
+        """Provider 2 sees only their 1 received application."""
+        self.client.force_authenticate(user=self.provider2)
+        res = self.client.get(self.received_url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["opportunity"]["title"], "P2 Design Listing")
+
+    def test_student_cannot_access_received_applications_endpoint(self):
+        """Student accounts receive 403 Forbidden when accessing received applications endpoint."""
+        self.client.force_authenticate(user=self.student)
+        res = self.client.get(self.received_url)
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_user_cannot_access_received_applications(self):
+        """Unauthenticated requests receive 401 Unauthorized."""
+        res = self.client.get(self.received_url)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+
 

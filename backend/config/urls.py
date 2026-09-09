@@ -16,6 +16,7 @@ from apps.opportunities.views import (
     ApplicationResumeDownloadView,
     ApplicationStatusUpdateView,
     MyApplicationsListView,
+    ReceivedApplicationsListView,
     SavedOpportunityListView,
 )
 
@@ -31,6 +32,7 @@ urlpatterns = [
     path("api/saved-opportunities/", SavedOpportunityListView.as_view(), name="root-saved-opportunity-list"),
     # Applications API endpoints
     path("api/applications/", MyApplicationsListView.as_view(), name="root-my-applications-list"),
+    path("api/applications/received/", ReceivedApplicationsListView.as_view(), name="root-received-applications-list"),
     path("api/applications/<int:pk>/status/", ApplicationStatusUpdateView.as_view(), name="root-application-status-update"),
     path("api/applications/<int:pk>/resume/", ApplicationResumeDownloadView.as_view(), name="root-application-resume-download"),
 

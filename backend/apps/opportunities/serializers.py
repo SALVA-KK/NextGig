@@ -174,10 +174,11 @@ class ApplicationSerializer(serializers.ModelSerializer):
 class ApplicantListSerializer(serializers.ModelSerializer):
     """
     Serializer for opportunity posters viewing applicants to their opportunity.
-    Nests applicant user details alongside cover_note, status, applied_at, and applicant resume metadata.
+    Nests applicant user details alongside cover_note, status, applied_at, applicant resume metadata, and opportunity info.
     """
 
     applicant = PosterPublicSerializer(read_only=True)
+    opportunity = OpportunityListSerializer(read_only=True)
     has_resume = serializers.SerializerMethodField()
     resume_download_url = serializers.SerializerMethodField()
 
@@ -185,6 +186,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
         model = Application
         fields = (
             "id",
+            "opportunity",
             "applicant",
             "status",
             "cover_note",

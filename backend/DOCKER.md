@@ -144,6 +144,7 @@ docker-compose up -d
 | **View Beat Logs** | `docker-compose logs -f celery_beat` |
 | **Run Container Migrations** | `docker-compose exec web python manage.py migrate` |
 | **Check Applied Migrations** | `docker-compose exec web python manage.py showmigrations` |
+| **Seed Demo Data** | `docker-compose exec web python manage.py seed_demo_data` |
 | **Create Superuser** | `docker-compose exec web python manage.py createsuperuser` |
 | **Run Unit Tests** | `docker-compose exec web python manage.py test` |
 | **Open Shell in Web** | `docker-compose exec web python manage.py shell` |

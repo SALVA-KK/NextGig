@@ -60,3 +60,23 @@ class IsApplicantOrPoster(BasePermission):
             return True
 
         return False
+
+
+class IsProviderUser(BasePermission):
+    """
+    Permission check granting access only to authenticated providers or administrators.
+    """
+
+    message = "Only provider accounts can perform this action."
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        role = getattr(request.user, "role", None)
+        return bool(
+            role == "provider"
+            or role == "admin"
+            or getattr(request.user, "is_staff", False)
+        )
+

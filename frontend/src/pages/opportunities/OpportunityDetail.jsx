@@ -49,12 +49,15 @@ export default function OpportunityDetail() {
         // If authenticated student, fetch user's applications and saved list
         if (authService.isAuthenticated() && authService.getUserRole() === 'student') {
           try {
-            const [myApps, savedList] = await Promise.all([
+            const [myAppsData, savedListData] = await Promise.all([
               opportunityService.getMyApplications(),
               opportunityService.getSavedOpportunities()
             ]);
 
             if (!isMounted) return;
+
+            const myApps = myAppsData?.results || myAppsData || [];
+            const savedList = savedListData?.results || savedListData || [];
 
             // Check if student already applied
             const foundApp = myApps.find(app => {

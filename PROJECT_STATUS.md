@@ -42,7 +42,22 @@
    - Orchestrated 5 Docker services in [`docker-compose.yml`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/docker-compose.yml): `db` (PostgreSQL 16), `redis` (Redis 7), `web` (Django dev server auto-running migrations), `celery_worker` (Celery worker), and `celery_beat` (Celery Beat periodic scheduler).
    - Created [backend/.dockerignore](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/.dockerignore) and root [.gitignore](file:///c:/Users/ACM/Desktop/myprojects/NextGig/.gitignore) protecting sensitive environment files (`.env`, `firebase-credentials.json`, `celerybeat-schedule`).
    - Created comprehensive backend infrastructure documentation in [backend/DOCKER.md](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/DOCKER.md) covering cold start procedures, port conflict resolution, stale volume resets, migration drift, and environment variable rules.
-   - Test suite total: **66 passed unit tests** across `accounts` and `opportunities`.
+   - Test suite total: **88 passed unit tests** across `accounts` and `opportunities`.
+
+7. **Demo Data Management Command & Applicant Seeding**:
+   - Created [`seed_demo_data.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/management/commands/seed_demo_data.py) to seed 4 provider accounts with `ProviderProfile`s, 3 student accounts, 8 provider opportunities across 7 categories, 4 student project collaboration listings (`category='project_collaboration'`), and 5 sample student applications with varied statuses (`applied`, `under_review`, `accepted`).
+   - Made command completely idempotent using `get_or_create` lookups by email and title.
+
+8. **Reusable Pagination Component & API Metadata Integration**:
+   - Built [`PaginationControl.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/common/PaginationControl.jsx) displaying current range, total items count, page indicator ("Page X of Y"), and reactive Previous/Next controls.
+   - Standardized [`opportunityService.js`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/services/opportunityService.js) to return `{ results, count, next, previous }` across `getOpportunities`, `getSavedOpportunities`, `getMyApplications`, and `getOpportunityApplicants`.
+   - Integrated pagination into [`UserDashboard.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/dashboard/UserDashboard.jsx), [`ProviderDashboard.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/dashboard/ProviderDashboard.jsx), [`MyOpportunities.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/provider/MyOpportunities.jsx), and [`ApplicantsView.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/provider/ApplicantsView.jsx).
+
+9. **Combined "All Applicants" Provider Overview**:
+   - Built backend endpoint `GET /api/applications/received/` ([`ReceivedApplicationsListView`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/views.py)) returning all `Application` records across every opportunity posted by the requesting provider. Gated by `IsAuthenticated` + `IsProviderUser` permission (403 for student users).
+   - Updated [`ApplicantListSerializer`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/serializers.py) to include nested `opportunity` information on each application.
+   - Configured [`ApplicantsView.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/provider/ApplicantsView.jsx) to make "All Applicants (Combined Overview)" the default landing view, with distinct `Applied For: <Title>` attribution headers on applicant cards and seamless status updating.
+   - Added `ReceivedApplicationsAPITests` unit test suite verifying strict provider isolation and student permission checks.
 
 ---
 
@@ -221,6 +236,10 @@
   - Total tests: **66 unit tests passed** (`docker-compose exec web python manage.py test apps.accounts.tests apps.opportunities.tests`).
   - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, Saved Opportunity bookmarking/isolation/idempotency/CASCADE, Applications apply/withdraw/status transitions, student role validation, self-application prevention, poster applicant views, and Celery task execution & Celery Beat opportunity auto-closure.
 - **Pagination**: **Done** (Global default `rest_framework.pagination.PageNumberPagination` configured in `settings.py` `REST_FRAMEWORK` with `PAGE_SIZE = 20`; view-level `OpportunityPagination` with `page_size=20`, `max_page_size=100` active across opportunity, application, and saved lists).
+- **Demo Data Seeding**: **Done**
+  - Command: `python manage.py seed_demo_data` (or `docker-compose exec web python manage.py seed_demo_data` if using Docker)
+  - Location: [`backend/apps/opportunities/management/commands/seed_demo_data.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/management/commands/seed_demo_data.py)
+  - Idempotent script that seeds 4 provider accounts with `ProviderProfile`, 3 student accounts, 8 provider opportunity listings across various categories, and 4 student project collaboration listings (`category='project_collaboration'`).
 
 ---
 

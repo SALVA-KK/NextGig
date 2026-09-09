@@ -49,6 +49,17 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
               <>
                 <div className="nav-group-title">PROVIDER PORTAL</div>
                 <button
+                  onClick={() => handleTabClick('explore')}
+                  className={`sidebar-nav-btn ${activeTab === 'explore' ? 'active' : ''}`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  Explore Opportunities
+                </button>
+
+                <button
                   onClick={() => handleTabClick('my-opportunities')}
                   className={`sidebar-nav-btn ${activeTab === 'my-opportunities' ? 'active' : ''}`}
                 >

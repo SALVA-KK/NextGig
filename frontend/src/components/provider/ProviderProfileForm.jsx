@@ -85,10 +85,17 @@ export default function ProviderProfileForm() {
 
   return (
     <div className="auth-card" style={{ maxWidth: '720px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: '700' }}>Organization / Provider Profile</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: '700' }}>Organization / Provider Profile</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            {formData.is_verified
+              ? 'Your organization is verified by administrators.'
+              : 'Your organization profile is active. Admin verification badge pending review.'}
+          </p>
+        </div>
         <span className={`status-badge ${formData.is_verified ? 'enabled' : 'pending'}`}>
-          {formData.is_verified ? 'Verified Provider' : 'Unverified Provider'}
+          {formData.is_verified ? 'Verified Provider' : 'Pending Admin Verification'}
         </span>
       </div>
 

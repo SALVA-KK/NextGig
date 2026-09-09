@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { opportunityService } from '../../services/opportunityService';
-import { api } from '../../services/authService';
+import { api, authService } from '../../services/authService';
+import PaginationControl from '../common/PaginationControl';
 
 export default function ApplicantsView({ selectedOpportunity = null, onSelectOpportunity }) {
   const [opportunities, setOpportunities] = useState([]);
-  const [activeOpp, setActiveOpp] = useState(selectedOpportunity);
+  const [activeOpp, setActiveOpp] = useState(selectedOpportunity || 'all');
   const [applicants, setApplicants] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [updatingId, setUpdatingId] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [downloadError, setDownloadError] = useState({});
@@ -16,6 +19,7 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
   useEffect(() => {
     if (selectedOpportunity) {
       setActiveOpp(selectedOpportunity);
+      setCurrentPage(1);
     }
   }, [selectedOpportunity]);
 
@@ -35,9 +39,6 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
             )
           : allOpps;
         setOpportunities(myOpps);
-        if (!activeOpp && myOpps.length > 0) {
-          setActiveOpp(myOpps[0]);
-        }
       } catch (err) {
         console.error('Error fetching opportunities for dropdown:', err);
       }
@@ -45,24 +46,30 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
     loadMyOpps();
   }, []);
 
-  // Fetch applicants whenever activeOpp changes
+  // Fetch applicants whenever activeOpp or currentPage changes
   useEffect(() => {
-    if (!activeOpp?.id) return;
     const fetchApplicants = async () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await opportunityService.getOpportunityApplicants(activeOpp.id);
-        setApplicants(data);
+        let data;
+        if (!activeOpp || activeOpp === 'all') {
+          data = await opportunityService.getReceivedApplications({ page: currentPage });
+        } else if (activeOpp?.id) {
+          data = await opportunityService.getOpportunityApplicants(activeOpp.id, { page: currentPage });
+        }
+        const results = data?.results || (Array.isArray(data) ? data : []);
+        setApplicants(results);
+        setTotalCount(data?.count ?? results.length);
       } catch (err) {
         console.error('Error fetching applicants:', err);
-        setError('Failed to load applicants for this opportunity.');
+        setError('Failed to load applicants for this view.');
       } finally {
         setLoading(false);
       }
     };
     fetchApplicants();
-  }, [activeOpp]);
+  }, [activeOpp, currentPage]);
 
   const handleStatusUpdate = async (applicationId, newStatus) => {
     setUpdatingId(applicationId);
@@ -112,6 +119,8 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
     }
   };
 
+  const selectedValue = activeOpp === 'all' || !activeOpp ? 'all' : (activeOpp.id || '');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
@@ -122,29 +131,35 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
           </p>
         </div>
 
-        {opportunities.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <label style={{ fontSize: '14px', fontWeight: '600' }}>Opportunity:</label>
-            <select
-              value={activeOpp?.id || ''}
-              onChange={(e) => {
-                const found = opportunities.find((o) => o.id === parseInt(e.target.value, 10));
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <label style={{ fontSize: '14px', fontWeight: '600' }}>Filter Opportunity:</label>
+          <select
+            value={selectedValue}
+            onChange={(e) => {
+              const val = e.target.value;
+              setCurrentPage(1);
+              if (val === 'all') {
+                setActiveOpp('all');
+                if (onSelectOpportunity) onSelectOpportunity(null);
+              } else {
+                const found = opportunities.find((o) => o.id === parseInt(val, 10));
                 if (found) {
                   setActiveOpp(found);
                   if (onSelectOpportunity) onSelectOpportunity(found);
                 }
-              }}
-              className="auth-input"
-              style={{ minWidth: '240px' }}
-            >
-              {opportunities.map((opp) => (
-                <option key={opp.id} value={opp.id}>
-                  {opp.title} ({opp.status})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              }
+            }}
+            className="auth-input"
+            style={{ minWidth: '260px' }}
+          >
+            <option value="all">All Applicants (Combined Overview)</option>
+            {opportunities.map((opp) => (
+              <option key={opp.id} value={opp.id}>
+                {opp.title} ({opp.status})
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && (
@@ -164,15 +179,13 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
 
       {loading ? (
         <div className="discovery-loading">Loading applicants...</div>
-      ) : !activeOpp ? (
-        <div className="dashboard-stat-card" style={{ textAlign: 'center', padding: '36px' }}>
-          Select an opportunity above to view applicants.
-        </div>
       ) : applicants.length === 0 ? (
         <div className="dashboard-stat-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>No Applicants Yet</h3>
+          <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>No Applicants Found</h3>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-            No candidates have applied to <strong>"{activeOpp.title}"</strong> yet.
+            {activeOpp === 'all' || !activeOpp
+              ? 'No candidate applications received across any of your posted opportunities yet.'
+              : `No candidates have applied to "${activeOpp.title}" yet.`}
           </p>
         </div>
       ) : (
@@ -195,6 +208,20 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
+                    {app.opportunity?.title && (
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          color: 'var(--accent-indigo, #6366f1)',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          marginBottom: '4px',
+                        }}
+                      >
+                        Applied For: {app.opportunity.title} ({app.opportunity.category?.replace('_', ' ')})
+                      </div>
+                    )}
                     <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>
                       {applicantName}
                     </h3>
@@ -296,6 +323,16 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
             );
           })}
         </div>
+      )}
+
+      {/* PAGINATION CONTROL */}
+      {!loading && !error && activeOpp && (
+        <PaginationControl
+          currentPage={currentPage}
+          totalItems={totalCount}
+          pageSize={20}
+          onPageChange={(newPage) => setCurrentPage(newPage)}
+        />
       )}
     </div>
   );

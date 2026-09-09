@@ -16,7 +16,7 @@ from apps.accounts.views import get_user_resume
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
 from .models import Application, Opportunity, SavedOpportunity
-from .permissions import IsApplicantOrPoster, IsOwnerOrReadOnly, IsVerifiedUser
+from .permissions import IsApplicantOrPoster, IsOwnerOrReadOnly, IsVerifiedUser, IsProviderUser
 from .serializers import (
     ApplicantListSerializer,
     ApplicationCreateSerializer,
@@ -563,5 +563,49 @@ class ApplicationResumeDownloadView(APIView):
         )
         response["Content-Disposition"] = f'inline; filename="{resume.original_filename}"'
         return response
+
+
+class ReceivedApplicationsListView(generics.ListAPIView):
+    """
+    API endpoint for authenticated providers to view all applications received across all of their posted opportunities.
+    Supports optional opportunity_id and status query parameter filtering.
+    """
+
+    permission_classes = [IsAuthenticated, IsProviderUser]
+    serializer_class = ApplicantListSerializer
+    pagination_class = OpportunityPagination
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Application.objects.filter(opportunity__poster=user).select_related(
+            "opportunity", "opportunity__poster", "applicant"
+        )
+        opp_id = self.request.query_params.get("opportunity_id")
+        if opp_id:
+            queryset = queryset.filter(opportunity_id=opp_id)
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param.strip())
+
+        return queryset.order_by("-applied_at")
+
+    @extend_schema(
+        summary="List received applications across all posted opportunities",
+        description="Returns a paginated list of applications received for any opportunity posted by the authenticated provider.",
+        parameters=[
+            OpenApiParameter("opportunity_id", OpenApiTypes.INT, description="Filter applications by specific opportunity ID"),
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter applications by status"),
+        ],
+        responses={200: ApplicantListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        if getattr(request.user, "role", None) not in ["provider", "admin"] and not getattr(request.user, "is_staff", False):
+            return Response(
+                {"detail": "Only provider accounts can view received applications."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().get(request, *args, **kwargs)
+
 
 

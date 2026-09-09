@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { opportunityService } from '../../services/opportunityService';
 import { authService } from '../../services/authService';
+import PaginationControl from '../common/PaginationControl';
 
 export default function MyOpportunities({ onViewApplicants, onEditOpportunity, onAddNew }) {
   const [opportunities, setOpportunities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const currentUser = authService.getCurrentUser();
 
   const loadMyOpportunities = async () => {
@@ -13,9 +16,9 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
     setError(null);
     try {
       // Fetch all status listings (open, closed, draft)
-      const data = await opportunityService.getOpportunities({ status: 'all' });
+      const data = await opportunityService.getOpportunities({ status: 'all', page: currentPage });
       const allOpps = data.results || [];
-      
+
       // Filter for opportunities posted by current user
       const myOpps = allOpps.filter((opp) => {
         if (!currentUser) return false;
@@ -27,6 +30,7 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
       });
 
       setOpportunities(myOpps);
+      setTotalCount(data.count ?? myOpps.length);
     } catch (err) {
       console.error('Error fetching posted opportunities:', err);
       setError('Failed to load your posted opportunities. Please try again.');
@@ -37,7 +41,7 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
 
   useEffect(() => {
     loadMyOpportunities();
-  }, []);
+  }, [currentPage]);
 
   const handleToggleStatus = async (opp) => {
     const newStatus = opp.status === 'open' ? 'closed' : 'open';
@@ -174,6 +178,16 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
             </div>
           ))}
         </div>
+      )}
+
+      {/* PAGINATION CONTROL */}
+      {!loading && !error && (
+        <PaginationControl
+          currentPage={currentPage}
+          totalItems={totalCount}
+          pageSize={20}
+          onPageChange={(newPage) => setCurrentPage(newPage)}
+        />
       )}
     </div>
   );

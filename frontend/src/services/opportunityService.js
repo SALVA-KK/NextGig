@@ -4,15 +4,23 @@ export const opportunityService = {
   /**
    * Fetch opportunities list with optional query params (category, work_mode, city, status)
    */
+  /**
+   * Fetch opportunities list with optional query params (category, work_mode, city, status, page)
+   */
   async getOpportunities(params = {}) {
     try {
       const response = await api.get('/opportunities/', { params });
       let data = response.data;
       let results = Array.isArray(data) ? data : (data?.results || []);
-      return { results, count: data.count || results.length };
+      return {
+        results,
+        count: data.count ?? results.length,
+        next: data.next || null,
+        previous: data.previous || null
+      };
     } catch (error) {
       console.error('Failed to fetch opportunities from backend:', error);
-      return { results: [], count: 0 };
+      return { results: [], count: 0, next: null, previous: null };
     }
   },
 
@@ -45,14 +53,20 @@ export const opportunityService = {
   /**
    * Get list of saved opportunity IDs or saved items for current student
    */
-  async getSavedOpportunities() {
+  async getSavedOpportunities(params = {}) {
     try {
-      const response = await api.get('/saved-opportunities/');
-      const results = Array.isArray(response.data) ? response.data : (response.data?.results || []);
-      return results;
+      const response = await api.get('/saved-opportunities/', { params });
+      let data = response.data;
+      let results = Array.isArray(data) ? data : (data?.results || []);
+      return {
+        results,
+        count: data.count ?? results.length,
+        next: data.next || null,
+        previous: data.previous || null
+      };
     } catch (error) {
       console.warn('Failed to fetch saved opportunities', error);
-      return [];
+      return { results: [], count: 0, next: null, previous: null };
     }
   },
 
@@ -74,14 +88,20 @@ export const opportunityService = {
   /**
    * Get list of applications submitted by student
    */
-  async getMyApplications() {
+  async getMyApplications(params = {}) {
     try {
-      const response = await api.get('/applications/');
-      const results = Array.isArray(response.data) ? response.data : (response.data?.results || []);
-      return results;
+      const response = await api.get('/applications/', { params });
+      let data = response.data;
+      let results = Array.isArray(data) ? data : (data?.results || []);
+      return {
+        results,
+        count: data.count ?? results.length,
+        next: data.next || null,
+        previous: data.previous || null
+      };
     } catch (error) {
       console.warn('Failed to fetch applications', error);
-      return [];
+      return { results: [], count: 0, next: null, previous: null };
     }
   },
 
@@ -112,11 +132,41 @@ export const opportunityService = {
   /**
    * Get applicants for a specific opportunity (GET /api/opportunities/<id>/applicants/)
    */
-  async getOpportunityApplicants(id) {
-    const response = await api.get(`/opportunities/${id}/applicants/`);
-    const data = response.data;
-    const results = Array.isArray(data) ? data : (data?.results || []);
-    return results;
+  async getOpportunityApplicants(id, params = {}) {
+    try {
+      const response = await api.get(`/opportunities/${id}/applicants/`, { params });
+      let data = response.data;
+      let results = Array.isArray(data) ? data : (data?.results || []);
+      return {
+        results,
+        count: data.count ?? results.length,
+        next: data.next || null,
+        previous: data.previous || null
+      };
+    } catch (error) {
+      console.error('Error fetching applicants:', error);
+      return { results: [], count: 0, next: null, previous: null };
+    }
+  },
+
+  /**
+   * Get all received applications across all opportunities posted by current provider
+   */
+  async getReceivedApplications(params = {}) {
+    try {
+      const response = await api.get('/applications/received/', { params });
+      let data = response.data;
+      let results = Array.isArray(data) ? data : (data?.results || []);
+      return {
+        results,
+        count: data.count ?? results.length,
+        next: data.next || null,
+        previous: data.previous || null
+      };
+    } catch (error) {
+      console.error('Error fetching received applications:', error);
+      return { results: [], count: 0, next: null, previous: null };
+    }
   },
 
   /**
