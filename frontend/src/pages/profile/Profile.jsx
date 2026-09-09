@@ -204,8 +204,8 @@ export default function Profile() {
                 )}
               </form>
 
-              {/* SECTION: Resume & Opportunity Profile (Student Role) */}
-              {(profile.role === 'student' || !profile.role) && <ResumeCard />}
+              {/* SECTION: Resume & Opportunity Profile (Student Role ONLY) */}
+              {profile.role === 'student' && <ResumeCard />}
 
               {/* SECTION 3: Account Security */}
               <ProfileSection

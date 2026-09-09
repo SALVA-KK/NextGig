@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authService } from '../../services/authService';
 import NotificationBell from './NotificationBell';
 
+import { getNavPermissions } from '../../utils/navigationConfig';
+
 export default function DashboardHeader({
   activeTab = 'opportunities',
   setActiveTab,
@@ -10,6 +12,11 @@ export default function DashboardHeader({
 }) {
   const navigate = useNavigate();
   const user = authService.getCurrentUser();
+  const rawAdmin = authService.isAdmin();
+  const userRole = user?.role || authService.getUserRole();
+  const { isStudent, isProvider, isAdmin, canViewApplications, canViewSavedItems, profileLabel } =
+    getNavPermissions(userRole, rawAdmin);
+
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -62,8 +69,6 @@ export default function DashboardHeader({
     }
   };
 
-  const isProvider = user?.role === 'provider';
-  const isAdmin = user?.role === 'admin';
   const brandLink = isAdmin ? '/admin' : isProvider ? '/provider-dashboard' : '/dashboard';
 
   const handleNavClick = (tabName) => {
@@ -108,18 +113,22 @@ export default function DashboardHeader({
             >
               Find Students
             </button>
-            <button
-              onClick={() => handleNavClick('saved')}
-              className={`header-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
-            >
-              Saved
-            </button>
-            <button
-              onClick={() => handleNavClick('applications')}
-              className={`header-nav-btn ${activeTab === 'applications' ? 'active' : ''}`}
-            >
-              Applications
-            </button>
+            {canViewSavedItems && (
+              <button
+                onClick={() => handleNavClick('saved')}
+                className={`header-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
+              >
+                Saved
+              </button>
+            )}
+            {canViewApplications && (
+              <button
+                onClick={() => handleNavClick('applications')}
+                className={`header-nav-btn ${activeTab === 'applications' ? 'active' : ''}`}
+              >
+                Applications
+              </button>
+            )}
           </nav>
         )}
       </div>
@@ -170,31 +179,48 @@ export default function DashboardHeader({
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                     <circle cx="12" cy="7" r="4"></circle>
                   </svg>
-                  Profile & Resume
+                  {profileLabel}
                 </button>
 
-                <button
-                  type="button"
-                  className="dropdown-item"
-                  onClick={() => handleDropdownNavigate('applications', '/dashboard')}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                  </svg>
-                  My Applications
-                </button>
+                {canViewApplications && (
+                  <button
+                    type="button"
+                    className="dropdown-item"
+                    onClick={() => handleDropdownNavigate('applications', '/dashboard')}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    My Applications
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  className="dropdown-item"
-                  onClick={() => handleDropdownNavigate('saved', '/dashboard')}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-                  </svg>
-                  Saved Items
-                </button>
+                {canViewSavedItems && (
+                  <button
+                    type="button"
+                    className="dropdown-item"
+                    onClick={() => handleDropdownNavigate('saved', isProvider ? '/provider-dashboard' : '/dashboard')}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Saved Items
+                  </button>
+                )}
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="dropdown-item"
+                    onClick={() => handleDropdownNavigate(null, '/admin')}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                    Admin Control
+                  </button>
+                )}
 
                 <button
                   type="button"

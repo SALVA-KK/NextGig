@@ -1,13 +1,15 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { authService } from '../../services/authService';
+import { getNavPermissions } from '../../utils/navigationConfig';
 
 export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const isAdmin = authService.isAdmin();
+  const rawAdmin = authService.isAdmin();
   const userRole = authService.getUserRole();
-  const isProvider = userRole === 'provider';
+  const { isStudent, isProvider, isAdmin, canViewApplications, canViewSavedItems, profileLabel } =
+    getNavPermissions(userRole, rawAdmin);
 
   const handleLogout = async () => {
     await authService.logout();
@@ -95,6 +97,16 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
                 </button>
 
                 <button
+                  onClick={() => handleTabClick('saved')}
+                  className={`sidebar-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  Saved Items
+                </button>
+
+                <button
                   onClick={() => handleTabClick('profile')}
                   className={`sidebar-nav-btn ${activeTab === 'profile' ? 'active' : ''}`}
                 >
@@ -108,7 +120,7 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
             ) : (
               <>
                 <div className="nav-group-title">DISCOVERY</div>
-                
+
                 <button
                   onClick={() => handleTabClick('opportunities')}
                   className={`sidebar-nav-btn ${activeTab === 'opportunities' ? 'active' : ''}`}
@@ -135,28 +147,34 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
 
                 <div className="nav-group-title">MY WORKSPACE</div>
 
-                <button
-                  onClick={() => handleTabClick('saved')}
-                  className={`sidebar-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-                  </svg>
-                  Saved Items
-                </button>
+                {/* Saved Items: student and provider roles ONLY (NOT admin) */}
+                {canViewSavedItems && (
+                  <button
+                    onClick={() => handleTabClick('saved')}
+                    className={`sidebar-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Saved Items
+                  </button>
+                )}
 
-                <button
-                  onClick={() => handleTabClick('applications')}
-                  className={`sidebar-nav-btn ${activeTab === 'applications' ? 'active' : ''}`}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                  </svg>
-                  My Applications
-                </button>
+                {/* My Applications: student role ONLY */}
+                {canViewApplications && (
+                  <button
+                    onClick={() => handleTabClick('applications')}
+                    className={`sidebar-nav-btn ${activeTab === 'applications' ? 'active' : ''}`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    My Applications
+                  </button>
+                )}
 
                 <Link
                   to="/profile"
@@ -167,7 +185,7 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                     <circle cx="12" cy="7" r="4"></circle>
                   </svg>
-                  Profile & Resumes
+                  {profileLabel}
                 </Link>
 
                 {isAdmin && (

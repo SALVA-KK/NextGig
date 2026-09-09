@@ -59,6 +59,12 @@
    - Configured [`ApplicantsView.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/provider/ApplicantsView.jsx) to make "All Applicants (Combined Overview)" the default landing view, with distinct `Applied For: <Title>` attribution headers on applicant cards and seamless status updating.
    - Added `ReceivedApplicationsAPITests` unit test suite verifying strict provider isolation and student permission checks.
 
+10. **Role-Gated Sidebar & Profile Navigation**:
+    - Updated [`Sidebar.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/dashboard/Sidebar.jsx) so `"My Applications"` is strictly restricted to `student` role (hidden for provider & admin).
+    - Restricted `"Saved Items"` to `student` and `provider` roles (hidden for admin).
+    - Dynamically labeled profile link as `"Profile & Resumes"` for students vs. `"Profile"` for providers and administrators.
+    - Updated [`Profile.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/profile/Profile.jsx) to strictly gate `<ResumeCard />` upload section to `student` role only.
+
 ---
 
 ### 1. TECH STACK
