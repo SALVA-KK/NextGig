@@ -72,7 +72,7 @@ export default function ChangePasswordCard() {
           </div>
           <button
             type="button"
-            className="btn-secondary-action"
+            className="btn-secondary"
             onClick={() => {
               setMessage(null);
               setShowForm(true);

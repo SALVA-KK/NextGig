@@ -1,10 +1,12 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * StudentCollabCard Component
  * Specifically tailored for student-to-student projects, hackathon teams, and peer collaborations.
  */
 export default function StudentCollabCard({ opportunity, isSaved, onSaveToggle, onSelect }) {
+  const navigate = useNavigate();
   const {
     id,
     title,
@@ -22,6 +24,11 @@ export default function StudentCollabCard({ opportunity, isSaved, onSaveToggle, 
   const initial = creatorName.charAt(0).toUpperCase();
   const openSlots = members_needed || vacancies || 2;
   const collabBadge = collaboration_type || 'Student Team Project';
+
+  const handleNavigate = () => {
+    if (onSelect) onSelect(opportunity);
+    navigate(`/opportunities/${id}`);
+  };
 
   return (
     <div className="collab-card">
@@ -55,7 +62,7 @@ export default function StudentCollabCard({ opportunity, isSaved, onSaveToggle, 
         </button>
       </div>
 
-      <div className="collab-card-body" onClick={() => onSelect(opportunity)}>
+      <div className="collab-card-body" onClick={handleNavigate}>
         <h3 className="collab-project-title">{title}</h3>
         <p className="collab-description">{description}</p>
 
@@ -90,7 +97,7 @@ export default function StudentCollabCard({ opportunity, isSaved, onSaveToggle, 
         </span>
 
         <button 
-          onClick={() => onSelect(opportunity)} 
+          onClick={handleNavigate} 
           className="btn-collab-connect"
         >
           View & Connect

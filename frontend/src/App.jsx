@@ -13,6 +13,7 @@ import Profile from './pages/profile/Profile';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminMFAChallenge from './pages/auth/AdminMFAChallenge';
 import AdminMFASetup from './pages/admin/AdminMFASetup';
+import OpportunityDetail from './pages/opportunities/OpportunityDetail';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/opportunities/:id" element={<OpportunityDetail />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/invite/:token" element={<InvitePage />} />

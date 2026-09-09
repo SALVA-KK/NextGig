@@ -223,7 +223,7 @@ export default function ResumeCard() {
             <div className="resume-actions-group">
               <button
                 type="button"
-                className="btn-secondary-action"
+                className="btn-secondary-sm"
                 onClick={handleDownload}
                 disabled={downloading || deleting}
               >
@@ -232,7 +232,7 @@ export default function ResumeCard() {
 
               <button
                 type="button"
-                className="btn-secondary-action"
+                className="btn-secondary-sm"
                 onClick={() => {
                   setMessage(null);
                   if (fileInputRef.current) fileInputRef.current.click();
@@ -244,7 +244,7 @@ export default function ResumeCard() {
 
               <button
                 type="button"
-                className="btn-danger-action"
+                className="btn-danger-sm"
                 onClick={() => {
                   setMessage(null);
                   setShowDeleteConfirm(true);
@@ -337,7 +337,7 @@ export default function ResumeCard() {
 
                   <button
                     type="button"
-                    className="btn-profile-cancel"
+                    className="btn-secondary-sm"
                     onClick={handleCancelFileSelect}
                     disabled={uploading}
                   >
@@ -368,16 +368,15 @@ export default function ResumeCard() {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button
                   type="button"
-                  className="btn-danger-action"
+                  className="btn-danger"
                   onClick={handleDeleteConfirm}
                   disabled={deleting}
-                  style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
                 >
                   {deleting ? 'Deleting...' : 'Yes, Delete Resume'}
                 </button>
                 <button
                   type="button"
-                  className="btn-profile-cancel"
+                  className="btn-secondary-sm"
                   onClick={() => setShowDeleteConfirm(false)}
                   disabled={deleting}
                 >

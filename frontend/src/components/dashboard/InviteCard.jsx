@@ -144,6 +144,7 @@ export default function InviteCard() {
           <div style={{ marginTop: '12px' }}>
             <button
               type="button"
+              className="btn-text"
               onClick={handleGenerateInvite}
               disabled={loading}
               style={{

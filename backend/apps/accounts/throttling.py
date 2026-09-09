@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework.throttling import SimpleRateThrottle
 
 
@@ -90,4 +91,56 @@ class ForgotPasswordEmailRateThrottle(SimpleRateThrottle):
             "scope": self.scope,
             "ident": self.get_ident(request),
         }
+
+
+class ResumeUploadBurstRateThrottle(SimpleRateThrottle):
+    """
+    Short "burst" rate throttle for resume upload.
+    Limits resume upload requests to max 1 request per 10 seconds per user.
+    Prevents accidental double-submits / rapid retries while remaining invisible to normal use.
+    """
+
+    scope = "resume_upload_burst"
+    rate = "1/10s"
+
+    def parse_rate(self, rate):
+        if rate == "1/10s":
+            return (1, 10)
+        return super().parse_rate(rate)
+
+    def get_cache_key(self, request, view):
+        if getattr(settings, "TESTING", False):
+            return None
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
+
+class ResumeUploadSustainedRateThrottle(SimpleRateThrottle):
+    """
+    Sustained longer-window rate throttle for resume upload.
+    Limits resume upload requests to max 30 requests per hour per user.
+    Allows user ample re-upload flexibility while preventing abuse.
+    """
+
+    scope = "resume_upload_sustained"
+    rate = "30/hour"
+
+    def get_cache_key(self, request, view):
+        if getattr(settings, "TESTING", False):
+            return None
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
 

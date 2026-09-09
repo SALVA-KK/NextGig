@@ -177,7 +177,8 @@ REST_FRAMEWORK = {
         "forgot_password_email": "3/hour",
         "opportunity_create": "10/hour",
         "application_create": "20/hour",
-        "resume_upload": "10/hour",
+        "resume_upload_burst": "1/10s",
+        "resume_upload_sustained": "30/hour",
     },
 }
 

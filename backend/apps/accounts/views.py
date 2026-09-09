@@ -43,6 +43,7 @@ from .serializers import (
     UserProfileSerializer,
     VerifyOTPSerializer,
 )
+from .throttling import ResumeUploadBurstRateThrottle, ResumeUploadSustainedRateThrottle
 
 
 # OpenAPI Inline Serializers for Swagger Documentation
@@ -1285,7 +1286,11 @@ class StudentResumeView(APIView):
 
     permission_classes = [IsAuthenticated, IsVerifiedUser, IsStudentRole]
     parser_classes = [MultiPartParser, FormParser]
-    throttle_scope = "resume_upload"
+
+    def get_throttles(self):
+        if self.request.method == "POST":
+            return [ResumeUploadBurstRateThrottle(), ResumeUploadSustainedRateThrottle()]
+        return []
 
 
     @extend_schema(

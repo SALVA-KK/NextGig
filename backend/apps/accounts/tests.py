@@ -1111,6 +1111,28 @@ class StudentResumeTestCase(TestCase):
         self.assertEqual(res_dl.status_code, status.HTTP_200_OK)
         self.assertIn("my_resume.pdf", res_dl["Content-Disposition"])
 
+    def test_resume_upload_burst_and_sustained_throttles(self):
+        from apps.accounts.throttling import ResumeUploadBurstRateThrottle, ResumeUploadSustainedRateThrottle
+        from django.core.cache import cache
+        from django.test import override_settings
+
+        cache.clear()
+        burst_throttle = ResumeUploadBurstRateThrottle()
+        sustained_throttle = ResumeUploadSustainedRateThrottle()
+
+        self.assertEqual(burst_throttle.parse_rate("1/10s"), (1, 10))
+        self.assertEqual(sustained_throttle.scope, "resume_upload_sustained")
+
+        class DummyRequest:
+            user = self.verified_student
+
+        req = DummyRequest()
+        with override_settings(TESTING=False):
+            key_burst = burst_throttle.get_cache_key(req, None)
+            key_sustained = sustained_throttle.get_cache_key(req, None)
+            self.assertIn("resume_upload_burst", key_burst)
+            self.assertIn("resume_upload_sustained", key_sustained)
+
 
 
 

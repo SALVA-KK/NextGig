@@ -17,6 +17,7 @@ const PUBLIC_ENDPOINTS = [
   '/accounts/forgot-password/',
   '/accounts/reset-password/',
   '/accounts/request-otp/',
+  '/accounts/token/refresh/',
   '/accounts/verify-otp/',
   '/accounts/phone-login/request-otp/',
   '/accounts/phone-login/verify-otp/',
@@ -38,6 +39,101 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Queue management variables for atomic token refresh
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// Response Interceptor to handle 401 Unauthorized errors transparently via Refresh Token
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (!error.response) {
+      return Promise.reject(error);
+    }
+
+    const is401 = error.response.status === 401;
+    const isAuthEndpoint = PUBLIC_ENDPOINTS.some((endpoint) =>
+      originalRequest.url?.includes(endpoint)
+    );
+
+    // If 401 error occurs on a protected endpoint and request hasn't been retried yet
+    if (is401 && !isAuthEndpoint && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers['Authorization'] = `Bearer ${token}`;
+            return api(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refresh_token');
+
+      if (!refreshToken) {
+        isRefreshing = false;
+        authService.logout();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+
+      try {
+        // Post to SimpleJWT refresh endpoint using raw axios to avoid interceptor recursion
+        const response = await axios.post(`${API_BASE_URL}/accounts/token/refresh/`, {
+          refresh: refreshToken,
+        });
+
+        const { access, refresh } = response.data;
+        if (access) {
+          localStorage.setItem('access_token', access);
+          if (refresh) {
+            localStorage.setItem('refresh_token', refresh);
+          }
+
+          api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
+          originalRequest.headers['Authorization'] = `Bearer ${access}`;
+
+          processQueue(null, access);
+          isRefreshing = false;
+
+          return api(originalRequest);
+        }
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        isRefreshing = false;
+
+        // Refresh token expired/blacklisted -> perform logout and redirect
+        authService.logout();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+          window.location.href = '/login';
+        }
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 /**
  * Helper to extract human-readable error text from DRF error response payloads.
@@ -563,6 +659,31 @@ export const authService = {
         throw new Error('Something went wrong. Please check your internet connection and try again.');
       }
       throw new Error(formatErrorResponse(error.response.data, 'Registration failed. Please check the provided information.', error.response.status));
+    }
+  },
+  /**
+   * Manually attempt to refresh access token using stored refresh token
+   */
+  refreshToken: async () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+      throw new Error('No refresh token available.');
+    }
+    try {
+      const response = await axios.post(`${API_BASE_URL}/accounts/token/refresh/`, {
+        refresh: refreshToken,
+      });
+      const data = response.data;
+      if (data.access) {
+        localStorage.setItem('access_token', data.access);
+        if (data.refresh) {
+          localStorage.setItem('refresh_token', data.refresh);
+        }
+      }
+      return data;
+    } catch (error) {
+      authService.logout();
+      throw error;
     }
   },
 };

@@ -1,10 +1,12 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * OpportunityCard Component
  * Displays a clean, scannable opportunity listing card for jobs, internships, freelance, etc.
  */
 export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, onSelect }) {
+  const navigate = useNavigate();
   const {
     id,
     title,
@@ -53,6 +55,11 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
   const initial = providerName.charAt(0).toUpperCase();
   const locationDisplay = location_text || (city ? `${city} · ${work_mode || ''}` : work_mode || 'Remote');
 
+  const handleNavigate = () => {
+    if (onSelect) onSelect(opportunity);
+    navigate(`/opportunities/${id}`);
+  };
+
   return (
     <div className="opp-card">
       <div className="opp-card-top">
@@ -81,7 +88,7 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
         </button>
       </div>
 
-      <div className="opp-card-body" onClick={() => onSelect(opportunity)}>
+      <div className="opp-card-body" onClick={handleNavigate}>
         <h3 className="opp-card-title">{title}</h3>
         
         <div className="opp-provider-row">
@@ -131,7 +138,7 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
         </div>
 
         <button 
-          onClick={() => onSelect(opportunity)} 
+          onClick={handleNavigate} 
           className="btn-opp-action"
         >
           View Details
