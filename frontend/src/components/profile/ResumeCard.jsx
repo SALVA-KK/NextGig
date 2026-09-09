@@ -315,7 +315,6 @@ export default function ResumeCard() {
               /* File Selected Confirmation Box */
               <div className="selected-file-confirmation">
                 <div className="selected-file-info">
-                  <span className="file-badge-icon">📄</span>
                   <div>
                     <p className="selected-filename">{selectedFile.name}</p>
                     <p className="selected-filesize">

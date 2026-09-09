@@ -8,6 +8,8 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
   const [applicants, setApplicants] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [downloadError, setDownloadError] = useState({});
   const [error, setError] = useState(null);
 
   // Sync selectedOpportunity prop when changed by parent
@@ -43,7 +45,6 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
     loadMyOpps();
   }, []);
 
-
   // Fetch applicants whenever activeOpp changes
   useEffect(() => {
     if (!activeOpp?.id) return;
@@ -78,23 +79,36 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
     }
   };
 
-  const handleDownloadResume = async (resumeUrl, applicantName) => {
+  const handleFetchAndAction = async (applicationId, resumeUrl, actionType, applicantName = 'Applicant') => {
     if (!resumeUrl) return;
+    setDownloadingId(applicationId);
+    setDownloadError((prev) => ({ ...prev, [applicationId]: null }));
+
     try {
-      const response = await api.get(resumeUrl, { responseType: 'blob' });
+      // Strip leading '/api' if present since Axios api instance baseURL already includes '/api'
+      const endpoint = resumeUrl.replace(/^\/api/, '');
+      const response = await api.get(endpoint, { responseType: 'blob' });
       const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/pdf' });
       const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      const safeName = (applicantName || 'Applicant').replace(/\s+/g, '_');
-      link.setAttribute('download', `${safeName}_Resume.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+
+      if (actionType === 'view') {
+        window.open(blobUrl, '_blank');
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
+      } else {
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        const safeName = (applicantName || 'Applicant').replace(/\s+/g, '_');
+        link.setAttribute('download', `${safeName}_Resume.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        link.parentNode.removeChild(link);
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+      }
     } catch (err) {
-      console.error('Failed to download resume:', err);
-      alert('Failed to download resume file.');
+      console.error('Failed to load resume:', err);
+      setDownloadError((prev) => ({ ...prev, [applicationId]: 'Could not load resume' }));
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -156,7 +170,6 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
         </div>
       ) : applicants.length === 0 ? (
         <div className="dashboard-stat-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>👥</div>
           <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>No Applicants Yet</h3>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
             No candidates have applied to <strong>"{activeOpp.title}"</strong> yet.
@@ -166,6 +179,9 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {applicants.map((app) => {
             const applicantName = app.applicant?.full_name || app.applicant?.email || 'Applicant';
+            const isDownloading = downloadingId === app.id;
+            const errText = downloadError[app.id];
+
             return (
               <div
                 key={app.id}
@@ -220,13 +236,30 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginTop: '4px' }}>
                   <div>
                     {app.has_resume && app.resume_download_url ? (
-                      <button
-                        onClick={() => handleDownloadResume(app.resume_download_url, applicantName)}
-                        className="btn-secondary-link"
-                        style={{ border: '1px solid var(--accent-indigo)', color: 'var(--accent-indigo)', padding: '6px 14px' }}
-                      >
-                        📄 Download Resume
-                      </button>
+                      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            onClick={() => handleFetchAndAction(app.id, app.resume_download_url, 'view')}
+                            disabled={isDownloading}
+                            className="btn-secondary-link"
+                            style={{ border: '1px solid var(--accent-indigo)', color: 'var(--accent-indigo)', padding: '6px 14px' }}
+                          >
+                            {isDownloading ? 'Loading Resume...' : 'View Resume'}
+                          </button>
+                          <button
+                            onClick={() => handleFetchAndAction(app.id, app.resume_download_url, 'download', applicantName)}
+                            disabled={isDownloading}
+                            className="btn-secondary-link"
+                            style={{ border: '1px solid var(--border-color)', color: 'var(--text-muted)', padding: '6px 10px', fontSize: '12px' }}
+                            title="Download file to disk"
+                          >
+                            Save File
+                          </button>
+                        </div>
+                        {errText && (
+                          <span style={{ fontSize: '12px', color: '#b91c1c' }}>{errText}</span>
+                        )}
+                      </div>
                     ) : (
                       <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No resume attached</span>
                     )}
@@ -239,7 +272,7 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                       className="btn-secondary-link"
                       style={{ border: '1px solid var(--border-color)', padding: '6px 12px' }}
                     >
-                      ⏳ Under Review
+                      Under Review
                     </button>
                     <button
                       disabled={updatingId === app.id || app.status === 'accepted'}
@@ -247,7 +280,7 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                       className="btn-primary-sm"
                       style={{ backgroundColor: '#10b981', padding: '6px 14px' }}
                     >
-                      ✓ Accept
+                      Accept
                     </button>
                     <button
                       disabled={updatingId === app.id || app.status === 'rejected'}
@@ -255,7 +288,7 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                       className="btn-secondary-link"
                       style={{ border: '1px solid #fecaca', color: '#b91c1c', padding: '6px 12px' }}
                     >
-                      ✕ Reject
+                      Reject
                     </button>
                   </div>
                 </div>

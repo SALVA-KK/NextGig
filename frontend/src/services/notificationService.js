@@ -49,7 +49,7 @@ export const notificationService = {
    */
   markAllAsRead: async () => {
     try {
-      const response = await api.post('/notifications/read-all/');
+      const response = await api.post('/notifications/mark-all-read/');
       return response.data;
     } catch (error) {
       console.error('[notificationService] markAllAsRead error:', error);
@@ -62,7 +62,7 @@ export const notificationService = {
    */
   deleteNotification: async (id) => {
     try {
-      const response = await api.delete(`/notifications/${id}/delete/`);
+      const response = await api.delete(`/notifications/${id}/`);
       return response.data;
     } catch (error) {
       console.error('[notificationService] deleteNotification error:', error);

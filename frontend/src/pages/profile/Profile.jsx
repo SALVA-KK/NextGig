@@ -5,6 +5,7 @@ import ProfileSection from '../../components/profile/ProfileSection';
 import ProfileField from '../../components/profile/ProfileField';
 import ChangePasswordCard from '../../components/profile/ChangePasswordCard';
 import ResumeCard from '../../components/profile/ResumeCard';
+import InviteCard from '../../components/dashboard/InviteCard';
 import { authService } from '../../services/authService';
 
 export default function Profile() {
@@ -221,6 +222,14 @@ export default function Profile() {
                 </div>
 
                 <ChangePasswordCard />
+              </ProfileSection>
+
+              {/* SECTION 4: Referrals & Invitations */}
+              <ProfileSection
+                title="Invite People & Referrals"
+                description="Generate a unique invitation link to invite friends or colleagues to join NextGig."
+              >
+                <InviteCard />
               </ProfileSection>
             </div>
           </>

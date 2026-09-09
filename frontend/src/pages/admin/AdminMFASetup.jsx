@@ -120,7 +120,7 @@ export default function AdminMFASetup() {
           <div className="user-profile-card">
             <div className="user-profile-header">
               <span className="badge-authenticated" style={{ background: 'rgba(34, 197, 94, 0.2)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
-                ✓ MFA Currently Active
+                MFA Currently Active
               </span>
             </div>
             <p style={{ fontSize: '0.9rem', color: '#9ca3af', marginTop: '12px', marginBottom: '20px' }}>
@@ -220,7 +220,6 @@ export default function AdminMFASetup() {
         ) : (
           /* MFA Setup Step 1: Start Setup Prompt */
           <div className="user-profile-card" style={{ textAlign: 'center', padding: '32px' }}>
-            <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔐</div>
             <h3 style={{ color: '#f3f4f6', marginBottom: '8px' }}>MFA is Not Yet Enabled</h3>
             <p style={{ fontSize: '0.9rem', color: '#9ca3af', maxWidth: '500px', margin: '0 auto 24px auto' }}>
               Enhance platform security by enabling Time-based One-Time Password (TOTP) Multi-Factor Authentication for your admin account.

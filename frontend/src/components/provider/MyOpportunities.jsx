@@ -103,7 +103,6 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
           className="dashboard-stat-card"
           style={{ textAlign: 'center', padding: '48px 24px', background: 'var(--bg-surface)' }}
         >
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>📋</div>
           <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>No Opportunities Posted Yet</h3>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '20px' }}>
             You have not posted any opportunities yet. Create your first job or internship listing to start receiving applications.
@@ -135,10 +134,10 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
                   </span>
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                  <span>🏷️ {opp.category?.replace('_', ' ')}</span>
-                  <span>📍 {opp.city || opp.work_mode}</span>
-                  <span>💰 {opp.pay_type} {opp.pay_amount ? `$${opp.pay_amount}` : ''}</span>
-                  <span>📅 Posted: {new Date(opp.created_at).toLocaleDateString()}</span>
+                  <span>Category: {opp.category?.replace('_', ' ')}</span>
+                  <span>Location: {opp.city || opp.work_mode}</span>
+                  <span>Pay: {opp.pay_type} {opp.pay_amount ? `$${opp.pay_amount}` : ''}</span>
+                  <span>Posted: {new Date(opp.created_at).toLocaleDateString()}</span>
                 </div>
               </div>
 
@@ -148,28 +147,28 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
                   className="btn-primary-sm"
                   style={{ backgroundColor: 'var(--accent-indigo)' }}
                 >
-                  👥 View Applicants
+                  View Applicants
                 </button>
                 <button
                   onClick={() => onEditOpportunity(opp)}
                   className="btn-secondary-link"
                   style={{ border: '1px solid var(--border-color)', padding: '6px 12px' }}
                 >
-                  ✏️ Edit
+                  Edit
                 </button>
                 <button
                   onClick={() => handleToggleStatus(opp)}
                   className="btn-secondary-link"
                   style={{ border: '1px solid var(--border-color)', padding: '6px 12px' }}
                 >
-                  {opp.status === 'open' ? '🔒 Close' : '🔓 Reopen'}
+                  {opp.status === 'open' ? 'Close' : 'Reopen'}
                 </button>
                 <button
                   onClick={() => handleDelete(opp.id)}
                   className="btn-secondary-link"
                   style={{ border: '1px solid #fecaca', color: '#b91c1c', padding: '6px 12px' }}
                 >
-                  🗑️ Delete
+                  Delete
                 </button>
               </div>
             </div>

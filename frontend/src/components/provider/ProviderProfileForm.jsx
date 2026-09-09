@@ -88,7 +88,7 @@ export default function ProviderProfileForm() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ fontSize: '20px', fontWeight: '700' }}>Organization / Provider Profile</h2>
         <span className={`status-badge ${formData.is_verified ? 'enabled' : 'pending'}`}>
-          {formData.is_verified ? '✓ Verified Provider' : 'Unverified Provider'}
+          {formData.is_verified ? 'Verified Provider' : 'Unverified Provider'}
         </span>
       </div>
 

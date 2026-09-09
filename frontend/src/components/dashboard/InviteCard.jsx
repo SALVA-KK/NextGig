@@ -54,41 +54,32 @@ export default function InviteCard() {
   };
 
   return (
-    <div className="dashboard-stat-card" style={{ gridColumn: 'span 2' }}>
-      <div className="stat-card-header" style={{ marginBottom: '12px' }}>
-        <span className="stat-label" style={{ fontSize: '1rem', fontWeight: '600', color: '#fff' }}>
-          Invite People
-        </span>
-        <span className="status-badge active">Platform Access</span>
-      </div>
-
-      <p className="subtitle" style={{ fontSize: '0.9rem', color: 'var(--text-secondary, #94a3b8)', marginBottom: '16px' }}>
-        Generate a unique invitation link to invite friends or colleagues to join NextGig.
-      </p>
-
+    <div className="invite-card-container">
       {error && (
-        <div className="alert-banner alert-error" style={{ marginBottom: '16px', fontSize: '0.85rem' }}>
+        <div className="alert-banner alert-error" style={{ marginBottom: '16px' }}>
           {error}
         </div>
       )}
 
       {!inviteUrl ? (
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={handleGenerateInvite}
-          disabled={loading}
-          style={{ width: 'auto', padding: '10px 20px' }}
-        >
-          {loading ? 'Generating Link...' : 'Generate Invite Link'}
-        </button>
+        <div>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleGenerateInvite}
+            disabled={loading}
+            style={{ width: 'auto', padding: '10px 24px' }}
+          >
+            {loading ? 'Generating Link...' : 'Generate Invite Link'}
+          </button>
+        </div>
       ) : (
         <div>
           <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#cbd5e1', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '8px', fontWeight: '500' }}>
               Your Invitation Link:
             </label>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 type="text"
                 readOnly
@@ -96,19 +87,21 @@ export default function InviteCard() {
                 className="form-input"
                 style={{
                   flex: 1,
-                  fontSize: '0.85rem',
+                  minWidth: '260px',
+                  fontSize: '0.9rem',
                   fontFamily: 'monospace',
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                   background: 'rgba(15, 23, 42, 0.6)',
                   color: '#38bdf8',
                   border: '1px solid rgba(56, 189, 248, 0.3)',
+                  borderRadius: '8px',
                 }}
               />
               <button
                 type="button"
                 className="btn-primary"
                 onClick={handleCopyLink}
-                style={{ width: 'auto', padding: '8px 16px', whiteSpace: 'nowrap' }}
+                style={{ width: 'auto', padding: '10px 20px', whiteSpace: 'nowrap' }}
               >
                 {copySuccess ? 'Copied!' : 'Copy Link'}
               </button>
@@ -118,16 +111,7 @@ export default function InviteCard() {
                   type="button"
                   className="btn-secondary"
                   onClick={handleShareLink}
-                  style={{
-                    width: 'auto',
-                    padding: '8px 16px',
-                    whiteSpace: 'nowrap',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: '#fff',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                  }}
+                  style={{ width: 'auto', padding: '10px 20px', whiteSpace: 'nowrap' }}
                 >
                   Share
                 </button>
@@ -136,8 +120,8 @@ export default function InviteCard() {
           </div>
 
           {copySuccess && (
-            <p style={{ color: '#4ade80', fontSize: '0.85rem', marginTop: '6px' }}>
-              ✓ Invitation link copied to clipboard!
+            <p style={{ color: '#4ade80', fontSize: '0.85rem', marginTop: '6px', fontWeight: '500' }}>
+              Invitation link copied to clipboard!
             </p>
           )}
 
@@ -151,7 +135,7 @@ export default function InviteCard() {
                 background: 'none',
                 border: 'none',
                 color: '#94a3b8',
-                fontSize: '0.8rem',
+                fontSize: '0.85rem',
                 textDecoration: 'underline',
                 cursor: 'pointer',
                 padding: 0,

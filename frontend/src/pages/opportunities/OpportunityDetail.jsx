@@ -362,7 +362,7 @@ export default function OpportunityDetail() {
             {isAuthenticated && isPoster && (
               <div style={{ textAlign: 'center', padding: '12px 0' }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', background: '#e0f2fe', color: '#0369a1', borderRadius: '20px', fontSize: '13px', fontWeight: '600', marginBottom: '12px' }}>
-                  ℹ️ You are the poster of this opportunity
+                  You are the poster of this opportunity
                 </div>
                 <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '16px' }}>
                   You cannot submit an application to your own listing. You can review applicants from your provider dashboard.
