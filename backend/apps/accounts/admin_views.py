@@ -29,10 +29,14 @@ class AdminPendingProvidersListView(generics.ListAPIView):
         return ProviderProfile.objects.filter(is_verified=False).select_related("user").order_by("-created_at")
 
 
+from apps.notifications.models import Notification
+from apps.notifications.services import create_notification
+
+
 class AdminVerifyProviderView(APIView):
     """
     API endpoint for admin to verify or un-verify a provider profile.
-    Includes rate limiting and audit logging.
+    Includes rate limiting, provider notifications, and audit logging.
     """
 
     permission_classes = [IsAdminRole]
@@ -41,29 +45,52 @@ class AdminVerifyProviderView(APIView):
 
     def patch(self, request, pk, *args, **kwargs):
         profile = get_object_or_404(ProviderProfile, pk=pk)
-        is_verified = request.data.get("is_verified", True)
-        profile.is_verified = is_verified
-        profile.save()
+        new_is_verified = request.data.get("is_verified", True)
+        old_is_verified = profile.is_verified
 
-        # Keep user.is_verified in sync
-        profile.user.is_verified = is_verified
-        profile.user.save()
+        if old_is_verified != new_is_verified:
+            profile.is_verified = new_is_verified
+            profile.save()
 
-        # Audit log
-        action_type = (
-            AdminActionLog.ActionType.PROVIDER_VERIFIED
-            if is_verified
-            else AdminActionLog.ActionType.PROVIDER_UNVERIFIED
-        )
-        AdminActionLog.objects.create(
-            admin=request.user,
-            action_type=action_type,
-            target_description=f"Provider #{profile.id}: {profile.organization_name} ({profile.user.email})",
-        )
+            # Keep user.is_verified in sync
+            profile.user.is_verified = new_is_verified
+            profile.user.save()
+
+            # Send in-app notification on actual state change
+            if new_is_verified:
+                create_notification(
+                    recipient=profile.user,
+                    actor=request.user,
+                    notification_type=Notification.NotificationType.PROVIDER_VERIFIED,
+                    title="You're Verified!",
+                    message="Congratulations - your organization has been verified by our team. Your Verified badge is now visible to students.",
+                    event_key=f"provider_verified:{profile.id}",
+                )
+            else:
+                create_notification(
+                    recipient=profile.user,
+                    actor=request.user,
+                    notification_type=Notification.NotificationType.PROVIDER_UNVERIFIED,
+                    title="Verification Status Updated",
+                    message="Your organization's verification status has been updated by our team.",
+                    event_key=f"provider_unverified:{profile.id}",
+                )
+
+            # Audit log
+            action_type = (
+                AdminActionLog.ActionType.PROVIDER_VERIFIED
+                if new_is_verified
+                else AdminActionLog.ActionType.PROVIDER_UNVERIFIED
+            )
+            AdminActionLog.objects.create(
+                admin=request.user,
+                action_type=action_type,
+                target_description=f"Provider #{profile.id}: {profile.organization_name} ({profile.user.email})",
+            )
 
         return Response(
             {
-                "message": f"Provider profile {'verified' if is_verified else 'unverified'} successfully.",
+                "message": f"Provider profile {'verified' if new_is_verified else 'unverified'} successfully.",
                 "id": profile.id,
                 "is_verified": profile.is_verified,
             },
