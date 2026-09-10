@@ -7,6 +7,9 @@ from .models import Application, Opportunity, SavedOpportunity
 User = get_user_model()
 
 
+from rest_framework.exceptions import PermissionDenied
+
+
 class PosterPublicSerializer(serializers.ModelSerializer):
     """
     Public nested representation of the user who posted the opportunity.
@@ -38,6 +41,8 @@ class OpportunityListSerializer(serializers.ModelSerializer):
             "pay_amount",
             "deadline",
             "status",
+            "close_reason",
+            "closed_by",
             "poster",
             "created_at",
             "applicants_count",
@@ -75,6 +80,8 @@ class OpportunityDetailSerializer(serializers.ModelSerializer):
             "deadline",
             "contact_info",
             "status",
+            "close_reason",
+            "closed_by",
             "created_at",
             "updated_at",
             "applicants_count",
@@ -109,8 +116,24 @@ class OpportunityCreateUpdateSerializer(serializers.ModelSerializer):
             "deadline",
             "contact_info",
             "status",
+            "close_reason",
+            "closed_by",
         )
-        read_only_fields = ("id",)
+        read_only_fields = ("id", "close_reason", "closed_by")
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+        new_status = attrs.get("status")
+
+        if instance and new_status and instance.status == Opportunity.Status.CLOSED and new_status == Opportunity.Status.OPEN:
+            if instance.close_reason == Opportunity.CloseReason.ADMIN_MODERATED:
+                request = self.context.get("request")
+                user = getattr(request, "user", None) if request else None
+                is_admin = user and (getattr(user, "role", None) == "admin" or getattr(user, "is_staff", False))
+                if not is_admin:
+                    raise PermissionDenied("This listing was closed by an admin and can only be reopened by an admin.")
+        return attrs
 
     def validate_deadline(self, value):
         """
@@ -135,6 +158,21 @@ class OpportunityCreateUpdateSerializer(serializers.ModelSerializer):
         if value is not None and value < 0:
             raise serializers.ValidationError("Pay amount cannot be negative.")
         return value
+
+    def update(self, instance, validated_data):
+        new_status = validated_data.get("status", instance.status)
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+
+        if new_status == Opportunity.Status.CLOSED and instance.status != Opportunity.Status.CLOSED:
+            if not validated_data.get("close_reason"):
+                validated_data["close_reason"] = Opportunity.CloseReason.OWNER_CLOSED
+                validated_data["closed_by"] = user
+        elif new_status == Opportunity.Status.OPEN and instance.status == Opportunity.Status.CLOSED:
+            validated_data["close_reason"] = None
+            validated_data["closed_by"] = None
+
+        return super().update(instance, validated_data)
 
 
 class SavedOpportunitySerializer(serializers.ModelSerializer):

@@ -389,6 +389,7 @@ class AdminActionLog(models.Model):
         USER_ACTIVATED = "user_activated", _("User Activated")
         USER_DEACTIVATED = "user_deactivated", _("User Deactivated")
         OPPORTUNITY_FORCE_CLOSED = "opportunity_force_closed", _("Opportunity Force Closed")
+        OPPORTUNITY_REOPENED = "opportunity_reopened", _("Opportunity Reopened")
         OPPORTUNITY_DELETED = "opportunity_deleted", _("Opportunity Deleted")
 
     admin = models.ForeignKey(

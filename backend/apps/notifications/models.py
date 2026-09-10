@@ -13,6 +13,9 @@ class Notification(models.Model):
         APPLICATION_STATUS_CHANGED = "application_status_changed", _("Application Status Updated")
         APPLICATION_WITHDRAWN = "application_withdrawn", _("Application Withdrawn")
         OPPORTUNITY_EXPIRED = "opportunity_expired", _("Opportunity Expired")
+        OPPORTUNITY_FORCE_CLOSED = "opportunity_force_closed", _("Opportunity Force Closed")
+        OPPORTUNITY_REOPENED = "opportunity_reopened", _("Opportunity Reopened")
+        PROVIDER_WELCOME = "provider_welcome", _("Welcome Provider")
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,

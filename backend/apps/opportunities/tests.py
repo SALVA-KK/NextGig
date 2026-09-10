@@ -852,5 +852,169 @@ class ReceivedApplicationsAPITests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+class OpportunityClosureAndReopenAPITests(APITestCase):
+    """
+    Test suite for opportunity closure tracking, reopen permissions, and applicant notifications.
+    """
+
+    def setUp(self):
+        self.poster = User.objects.create_user(
+            email="poster_closure@example.com",
+            password="Password123!",
+            full_name="Poster User",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+        self.admin = User.objects.create_user(
+            email="admin_closure@example.com",
+            password="Password123!",
+            full_name="Admin User",
+            role=User.Role.ADMIN,
+            is_verified=True,
+            is_staff=True,
+        )
+        self.applicant1 = User.objects.create_user(
+            email="applicant1_closure@example.com",
+            password="Password123!",
+            full_name="Applicant One",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        self.applicant2 = User.objects.create_user(
+            email="applicant2_closure@example.com",
+            password="Password123!",
+            full_name="Applicant Two",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+
+        self.opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Closure Test Gig",
+            description="Testing closure logic",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.OPEN,
+        )
+
+        self.app1 = Application.objects.create(applicant=self.applicant1, opportunity=self.opp)
+        self.app2 = Application.objects.create(applicant=self.applicant2, opportunity=self.opp)
+
+    def test_owner_cannot_reopen_admin_moderated_opportunity(self):
+        """Owner receives 403 Forbidden when attempting to reopen an admin-moderated opportunity."""
+        # 1. Admin force closes the opportunity
+        self.client.force_authenticate(user=self.admin)
+        fc_res = self.client.patch(f"/api/admin/opportunities/{self.opp.pk}/force-close/")
+        self.assertEqual(fc_res.status_code, status.HTTP_200_OK)
+
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.CLOSED)
+        self.assertEqual(self.opp.close_reason, Opportunity.CloseReason.ADMIN_MODERATED)
+        self.assertEqual(self.opp.closed_by, self.admin)
+
+        # 2. Owner attempts to reopen (PATCH status='open') -> 403 Forbidden
+        self.client.force_authenticate(user=self.poster)
+        reopen_res = self.client.patch(
+            reverse("opportunities:opportunity-detail", kwargs={"pk": self.opp.pk}),
+            {"status": "open"},
+            format="json",
+        )
+        self.assertEqual(reopen_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("closed by an admin", reopen_res.data["detail"].lower())
+
+    def test_owner_can_reopen_self_closed_opportunity(self):
+        """Owner can reopen their own self-closed opportunity."""
+        # 1. Owner self-closes opportunity
+        self.client.force_authenticate(user=self.poster)
+        close_res = self.client.patch(
+            reverse("opportunities:opportunity-detail", kwargs={"pk": self.opp.pk}),
+            {"status": "closed"},
+            format="json",
+        )
+        self.assertEqual(close_res.status_code, status.HTTP_200_OK)
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.CLOSED)
+        self.assertEqual(self.opp.close_reason, Opportunity.CloseReason.OWNER_CLOSED)
+        self.assertEqual(self.opp.closed_by, self.poster)
+
+        # 2. Owner reopens opportunity
+        reopen_res = self.client.patch(
+            reverse("opportunities:opportunity-detail", kwargs={"pk": self.opp.pk}),
+            {"status": "open"},
+            format="json",
+        )
+        self.assertEqual(reopen_res.status_code, status.HTTP_200_OK)
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.OPEN)
+        self.assertIsNone(self.opp.close_reason)
+        self.assertIsNone(self.opp.closed_by)
+
+    def test_owner_can_reopen_expired_opportunity(self):
+        """Owner can reopen an opportunity closed due to deadline expiration."""
+        self.opp.deadline = date.today() - timedelta(days=1)
+        self.opp.save()
+        close_expired_opportunities()
+
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.CLOSED)
+        self.assertEqual(self.opp.close_reason, Opportunity.CloseReason.EXPIRED)
+
+        # Owner reopens with a valid future deadline
+        self.client.force_authenticate(user=self.poster)
+        reopen_res = self.client.patch(
+            reverse("opportunities:opportunity-detail", kwargs={"pk": self.opp.pk}),
+            {"status": "open", "deadline": (date.today() + timedelta(days=10)).isoformat()},
+            format="json",
+        )
+        self.assertEqual(reopen_res.status_code, status.HTTP_200_OK)
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.OPEN)
+        self.assertIsNone(self.opp.close_reason)
+
+    def test_admin_can_reopen_admin_moderated_opportunity(self):
+        """Admin can reopen an admin-moderated opportunity via admin reopen endpoint."""
+        self.client.force_authenticate(user=self.admin)
+        self.client.patch(f"/api/admin/opportunities/{self.opp.pk}/force-close/")
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.CLOSED)
+
+        reopen_res = self.client.patch(f"/api/admin/opportunities/{self.opp.pk}/reopen/")
+        self.assertEqual(reopen_res.status_code, status.HTTP_200_OK)
+        self.opp.refresh_from_db()
+        self.assertEqual(self.opp.status, Opportunity.Status.OPEN)
+        self.assertIsNone(self.opp.close_reason)
+
+    def test_admin_force_close_notifies_all_applicants(self):
+        """Force closing an opportunity dispatches in-app notifications to all applicants."""
+        from apps.notifications.models import Notification
+
+        self.client.force_authenticate(user=self.admin)
+        fc_res = self.client.patch(f"/api/admin/opportunities/{self.opp.pk}/force-close/")
+        self.assertEqual(fc_res.status_code, status.HTTP_200_OK)
+
+        notifs1 = Notification.objects.filter(recipient=self.applicant1, notification_type=Notification.NotificationType.OPPORTUNITY_FORCE_CLOSED)
+        notifs2 = Notification.objects.filter(recipient=self.applicant2, notification_type=Notification.NotificationType.OPPORTUNITY_FORCE_CLOSED)
+
+        self.assertEqual(notifs1.count(), 1)
+        self.assertEqual(notifs2.count(), 1)
+
+    def test_admin_reopen_notifies_all_applicants(self):
+        """Reopening an opportunity dispatches in-app notifications to all applicants."""
+        from apps.notifications.models import Notification
+
+        self.client.force_authenticate(user=self.admin)
+        self.client.patch(f"/api/admin/opportunities/{self.opp.pk}/force-close/")
+
+        reopen_res = self.client.patch(f"/api/admin/opportunities/{self.opp.pk}/reopen/")
+        self.assertEqual(reopen_res.status_code, status.HTTP_200_OK)
+
+        notifs1 = Notification.objects.filter(recipient=self.applicant1, notification_type=Notification.NotificationType.OPPORTUNITY_REOPENED)
+        notifs2 = Notification.objects.filter(recipient=self.applicant2, notification_type=Notification.NotificationType.OPPORTUNITY_REOPENED)
+
+        self.assertEqual(notifs1.count(), 1)
+        self.assertEqual(notifs2.count(), 1)
+
+
 
 

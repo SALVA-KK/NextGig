@@ -898,6 +898,40 @@ class ProviderProfileTestCase(TestCase):
         self.assertNotEqual(res.data["organization_name"], "Other Provider Org")
         self.assertEqual(res.data["organization_name"], "Acme Corp Admin")
 
+    def test_provider_welcome_notification_created_once(self):
+        """A new provider's first profile access creates exactly one welcome notification; subsequent accesses do not duplicate it."""
+        from apps.notifications.models import Notification
+
+        new_provider = CustomUser.objects.create_user(
+            email="fresh_provider@example.com",
+            password="Password123!",
+            full_name="Fresh Provider",
+            role=CustomUser.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        self.client.force_authenticate(user=new_provider)
+
+        # 1. First GET request creates profile and exactly 1 welcome notification
+        res1 = self.client.get(self.provider_profile_url)
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+
+        welcome_notifs = Notification.objects.filter(
+            recipient=new_provider,
+            notification_type=Notification.NotificationType.PROVIDER_WELCOME,
+        )
+        self.assertEqual(welcome_notifs.count(), 1)
+        self.assertIn("Your organization profile is live", welcome_notifs.first().message)
+
+        # 2. Second GET / PATCH request does NOT create duplicate welcome notification
+        res2 = self.client.get(self.provider_profile_url)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+
+        res_patch = self.client.patch(self.provider_profile_url, {"city": "New City"}, format="json")
+        self.assertEqual(res_patch.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(welcome_notifs.count(), 1)
+
 
 class StudentResumeTestCase(TestCase):
     """

@@ -182,6 +182,25 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleReopenOpp = async (opp) => {
+    setActionLoading(true);
+    try {
+      await adminService.reopenOpportunity(opp.id);
+      setBannerMessage({
+        type: 'success',
+        text: `Opportunity "${opp.title}" has been reopened.`,
+      });
+      setOpportunities((prev) =>
+        prev.map((o) => (o.id === opp.id ? { ...o, status: 'open', close_reason: null, closed_by: null } : o))
+      );
+    } catch (err) {
+      console.error('Error reopening opportunity:', err);
+      setBannerMessage({ type: 'error', text: 'Failed to reopen opportunity.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleConfirmDeleteOpp = async () => {
     if (!selectedOppToDelete) return;
     setActionLoading(true);
@@ -585,7 +604,7 @@ export default function AdminDashboard() {
                         </td>
                         <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            {opp.status !== 'closed' && (
+                            {opp.status !== 'closed' ? (
                               <button
                                 onClick={() => handleForceCloseOpp(opp)}
                                 disabled={actionLoading}
@@ -593,6 +612,15 @@ export default function AdminDashboard() {
                                 style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px' }}
                               >
                                 Force Close
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleReopenOpp(opp)}
+                                disabled={actionLoading}
+                                className="btn-secondary-link"
+                                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #a7f3d0', backgroundColor: '#ecfdf5', color: '#047857', fontSize: '13px' }}
+                              >
+                                Reopen
                               </button>
                             )}
                             <button

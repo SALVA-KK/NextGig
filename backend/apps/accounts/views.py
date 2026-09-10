@@ -1246,6 +1246,10 @@ class IsProviderUser(BasePermission):
         )
 
 
+from apps.notifications.models import Notification
+from apps.notifications.services import create_notification
+
+
 class ProviderProfileView(generics.RetrieveUpdateAPIView):
     """
     API endpoint for provider users to view and update their organization profile.
@@ -1262,6 +1266,15 @@ class ProviderProfileView(generics.RetrieveUpdateAPIView):
                 "organization_name": self.request.user.full_name or "My Organization",
             },
         )
+        if created:
+            create_notification(
+                recipient=self.request.user,
+                actor=None,
+                notification_type=Notification.NotificationType.PROVIDER_WELCOME,
+                title="Welcome to NextGig!",
+                message="Your organization profile is live - you can post opportunities right away. Our team will review your profile shortly, and you'll receive a Verified badge once approved.",
+                event_key=f"provider_welcome:{self.request.user.id}",
+            )
         return profile
 
 

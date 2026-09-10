@@ -35,10 +35,28 @@ class Opportunity(models.Model):
         CLOSED = "closed", _("Closed")
         DRAFT = "draft", _("Draft")
 
+    class CloseReason(models.TextChoices):
+        OWNER_CLOSED = "owner_closed", _("Owner Closed")
+        ADMIN_MODERATED = "admin_moderated", _("Admin Moderated")
+        EXPIRED = "expired", _("Expired")
+
     poster = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="posted_opportunities",
         on_delete=models.CASCADE,
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="closed_opportunities",
+    )
+    close_reason = models.CharField(
+        max_length=30,
+        choices=CloseReason.choices,
+        null=True,
+        blank=True,
     )
     title = models.CharField(max_length=200)
     description = models.TextField()

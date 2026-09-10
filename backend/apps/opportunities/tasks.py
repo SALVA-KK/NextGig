@@ -114,7 +114,9 @@ def close_expired_opportunities():
         try:
             with transaction.atomic():
                 opp.status = Opportunity.Status.CLOSED
-                opp.save(update_fields=["status", "updated_at"])
+                opp.close_reason = Opportunity.CloseReason.EXPIRED
+                opp.closed_by = None
+                opp.save(update_fields=["status", "close_reason", "closed_by", "updated_at"])
                 create_notification(
                     recipient=opp.poster,
                     actor=None,

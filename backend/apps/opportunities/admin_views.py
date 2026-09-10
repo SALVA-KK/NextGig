@@ -34,10 +34,15 @@ class AdminOpportunityListView(generics.ListAPIView):
         return queryset
 
 
+from apps.notifications.models import Notification
+from apps.notifications.services import create_notification
+from apps.opportunities.models import Application, Opportunity
+
+
 class AdminForceCloseOpportunityView(APIView):
     """
     API endpoint for admin to force close any opportunity listing.
-    Includes rate limiting and audit logging.
+    Includes rate limiting, applicant notifications, and audit logging.
     """
 
     permission_classes = [IsAdminRole]
@@ -46,8 +51,24 @@ class AdminForceCloseOpportunityView(APIView):
 
     def patch(self, request, pk, *args, **kwargs):
         opportunity = get_object_or_404(Opportunity, pk=pk)
-        opportunity.status = "closed"
-        opportunity.save()
+        opportunity.status = Opportunity.Status.CLOSED
+        opportunity.close_reason = Opportunity.CloseReason.ADMIN_MODERATED
+        opportunity.closed_by = request.user
+        opportunity.save(update_fields=["status", "close_reason", "closed_by", "updated_at"])
+
+        # Notify all applicants
+        applications = Application.objects.filter(opportunity=opportunity).select_related("applicant")
+        for app in applications:
+            create_notification(
+                recipient=app.applicant,
+                actor=request.user,
+                notification_type=Notification.NotificationType.OPPORTUNITY_FORCE_CLOSED,
+                title="Opportunity Closed by Moderation",
+                message=f"An opportunity you applied to ('{opportunity.title}') has been closed by platform moderation.",
+                opportunity=opportunity,
+                application=app,
+                event_key=f"opp_force_closed:{opportunity.id}:{app.id}",
+            )
 
         # Audit log
         AdminActionLog.objects.create(
@@ -59,6 +80,55 @@ class AdminForceCloseOpportunityView(APIView):
         return Response(
             {
                 "message": "Opportunity force-closed by admin.",
+                "id": opportunity.id,
+                "status": opportunity.status,
+                "close_reason": opportunity.close_reason,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminReopenOpportunityView(APIView):
+    """
+    API endpoint for admin to reopen an opportunity listing previously force-closed or closed.
+    Includes rate limiting, applicant notifications, and audit logging.
+    """
+
+    permission_classes = [IsAdminRole]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "admin_write"
+
+    def patch(self, request, pk, *args, **kwargs):
+        opportunity = get_object_or_404(Opportunity, pk=pk)
+        opportunity.status = Opportunity.Status.OPEN
+        opportunity.close_reason = None
+        opportunity.closed_by = None
+        opportunity.save(update_fields=["status", "close_reason", "closed_by", "updated_at"])
+
+        # Notify all applicants
+        applications = Application.objects.filter(opportunity=opportunity).select_related("applicant")
+        for app in applications:
+            create_notification(
+                recipient=app.applicant,
+                actor=request.user,
+                notification_type=Notification.NotificationType.OPPORTUNITY_REOPENED,
+                title="Opportunity Reopened",
+                message=f"An opportunity you applied to ('{opportunity.title}') has been reopened by platform moderation.",
+                opportunity=opportunity,
+                application=app,
+                event_key=f"opp_reopened:{opportunity.id}:{app.id}",
+            )
+
+        # Audit log
+        AdminActionLog.objects.create(
+            admin=request.user,
+            action_type=AdminActionLog.ActionType.OPPORTUNITY_REOPENED,
+            target_description=f"Opportunity #{opportunity.id}: {opportunity.title}",
+        )
+
+        return Response(
+            {
+                "message": "Opportunity reopened by admin.",
                 "id": opportunity.id,
                 "status": opportunity.status,
             },

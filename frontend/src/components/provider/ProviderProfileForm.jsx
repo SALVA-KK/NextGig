@@ -91,7 +91,7 @@ export default function ProviderProfileForm() {
           <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
             {formData.is_verified
               ? 'Your organization is verified by administrators.'
-              : 'Your organization profile is active. Admin verification badge pending review.'}
+              : "Your organization profile is live - you can post opportunities right away. Our team will review your profile shortly, and you'll receive a Verified badge once approved."}
           </p>
         </div>
         <span className={`status-badge ${formData.is_verified ? 'enabled' : 'pending'}`}>

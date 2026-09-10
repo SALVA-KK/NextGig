@@ -23,6 +23,7 @@ from apps.opportunities.admin_views import (
     AdminDeleteOpportunityView,
     AdminForceCloseOpportunityView,
     AdminOpportunityListView,
+    AdminReopenOpportunityView,
 )
 from apps.opportunities.views import (
     ApplicationResumeDownloadView,
@@ -55,6 +56,7 @@ urlpatterns = [
     path("api/admin/users/<int:pk>/toggle-active/", AdminToggleUserActiveView.as_view(), name="admin-toggle-user-active"),
     path("api/admin/opportunities/", AdminOpportunityListView.as_view(), name="admin-opportunity-list"),
     path("api/admin/opportunities/<int:pk>/force-close/", AdminForceCloseOpportunityView.as_view(), name="admin-force-close-opportunity"),
+    path("api/admin/opportunities/<int:pk>/reopen/", AdminReopenOpportunityView.as_view(), name="admin-reopen-opportunity"),
     path("api/admin/opportunities/<int:pk>/", AdminDeleteOpportunityView.as_view(), name="admin-delete-opportunity"),
     path("api/admin/audit-log/", AdminAuditLogListView.as_view(), name="admin-audit-log"),
 

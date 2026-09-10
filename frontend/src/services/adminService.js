@@ -71,6 +71,14 @@ export const adminService = {
   },
 
   /**
+   * Reopen a closed or force-closed opportunity listing
+   */
+  async reopenOpportunity(id) {
+    const response = await api.patch(`/admin/opportunities/${id}/reopen/`);
+    return response.data;
+  },
+
+  /**
    * Delete an opportunity listing (moderation)
    */
   async deleteOpportunity(id) {
