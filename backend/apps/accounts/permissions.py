@@ -20,6 +20,9 @@ class IsAdminRole(permissions.BasePermission):
         )
 
 
+IsAdminUser = IsAdminRole
+
+
 class IsStudentRole(permissions.BasePermission):
     """
     Custom permission to only allow users with the STUDENT role to access student-specific endpoints.

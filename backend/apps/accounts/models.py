@@ -378,5 +378,46 @@ class Resume(models.Model):
         return f"Resume of {self.user.email} ({self.original_filename})"
 
 
+class AdminActionLog(models.Model):
+    """
+    Audit log model for tracking sensitive administrative operations on NextGig.
+    """
+
+    class ActionType(models.TextChoices):
+        PROVIDER_VERIFIED = "provider_verified", _("Provider Verified")
+        PROVIDER_UNVERIFIED = "provider_unverified", _("Provider Unverified")
+        USER_ACTIVATED = "user_activated", _("User Activated")
+        USER_DEACTIVATED = "user_deactivated", _("User Deactivated")
+        OPPORTUNITY_FORCE_CLOSED = "opportunity_force_closed", _("Opportunity Force Closed")
+        OPPORTUNITY_DELETED = "opportunity_deleted", _("Opportunity Deleted")
+
+    admin = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="admin_actions",
+        help_text=_("Admin user who performed the action."),
+    )
+    action_type = models.CharField(
+        max_length=50,
+        choices=ActionType.choices,
+        help_text=_("Categorical type of admin action performed."),
+    )
+    target_description = models.CharField(
+        max_length=255,
+        help_text=_("Human-readable target details (e.g., 'Provider: Acme Corp', 'User: test@example.com')."),
+    )
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "admin_action_logs"
+        verbose_name = _("admin action log")
+        verbose_name_plural = _("admin action logs")
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"[{self.timestamp.strftime('%Y-%m-%d %H:%M')}] {self.admin.email} - {self.get_action_type_display()}: {self.target_description}"
+
+
+
 
 

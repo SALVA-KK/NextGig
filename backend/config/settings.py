@@ -179,6 +179,7 @@ REST_FRAMEWORK = {
         "application_create": "20/hour",
         "resume_upload_burst": "1/10s",
         "resume_upload_sustained": "30/hour",
+        "admin_write": "30/hour",
     },
 }
 

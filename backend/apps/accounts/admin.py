@@ -2,7 +2,43 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import CustomUser, ProviderProfile, Resume
+from .models import AdminActionLog, CustomUser, ProviderProfile, Resume
+
+
+@admin.register(AdminActionLog)
+class AdminActionLogAdmin(admin.ModelAdmin):
+    """
+    Read-only Django admin configuration for inspecting administrative audit log history.
+    """
+
+    list_display = (
+        "timestamp",
+        "admin",
+        "action_type",
+        "target_description",
+    )
+
+    list_filter = (
+        "action_type",
+        "timestamp",
+    )
+
+    search_fields = (
+        "admin__email",
+        "target_description",
+    )
+
+    ordering = ("-timestamp",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 
 @admin.register(CustomUser)

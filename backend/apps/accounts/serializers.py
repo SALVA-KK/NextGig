@@ -8,7 +8,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import CustomUser, PhoneOTP, Invitation, ProviderProfile, Resume
+from .models import AdminActionLog, CustomUser, PhoneOTP, Invitation, ProviderProfile, Resume
 from .utils import get_phone_lookup_variants, normalize_phone_number, verify_recaptcha_token
 
 
@@ -658,5 +658,70 @@ class ResumeUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError(messages[0] if len(messages) == 1 else messages)
 
 
+class AdminPendingProviderSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing pending provider profiles for admin verification.
+    """
 
+    owner_email = serializers.EmailField(source="user.email", read_only=True)
+    owner_full_name = serializers.CharField(source="user.full_name", read_only=True)
+
+    class Meta:
+        model = ProviderProfile
+        fields = (
+            "id",
+            "organization_name",
+            "organization_type",
+            "description",
+            "contact_person",
+            "website",
+            "address",
+            "city",
+            "owner_email",
+            "owner_full_name",
+            "is_verified",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class AdminUserListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing all user accounts for admin management.
+    """
+
+    class Meta:
+        model = CustomUser
+        fields = (
+            "id",
+            "email",
+            "full_name",
+            "role",
+            "is_active",
+            "is_verified",
+            "date_joined",
+        )
+        read_only_fields = fields
+
+
+class AdminAuditLogSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing administrative audit log records.
+    """
+
+    admin_email = serializers.EmailField(source="admin.email", read_only=True)
+    action_type_display = serializers.CharField(source="get_action_type_display", read_only=True)
+
+    class Meta:
+        model = AdminActionLog
+        fields = (
+            "id",
+            "admin",
+            "admin_email",
+            "action_type",
+            "action_type_display",
+            "target_description",
+            "timestamp",
+        )
+        read_only_fields = fields
 
