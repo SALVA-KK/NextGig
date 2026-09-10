@@ -11,11 +11,6 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
   const { isStudent, isProvider, isAdmin, canViewApplications, canViewSavedItems, profileLabel } =
     getNavPermissions(userRole, rawAdmin);
 
-  const handleLogout = async () => {
-    await authService.logout();
-    navigate('/login', { replace: true });
-  };
-
   const brandLink = isAdmin ? '/admin' : isProvider ? '/provider-dashboard' : '/dashboard';
 
   const handleTabClick = (tabName) => {
@@ -199,19 +194,6 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
               </>
             )}
           </nav>
-        </div>
-
-
-
-        <div className="sidebar-footer">
-          <button onClick={handleLogout} className="btn-sidebar-logout">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <polyline points="16 17 21 12 16 7"></polyline>
-              <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-            Sign Out
-          </button>
         </div>
       </aside>
     </>

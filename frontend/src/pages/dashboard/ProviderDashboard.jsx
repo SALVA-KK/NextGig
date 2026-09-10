@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import MyOpportunities from '../../components/provider/MyOpportunities';
 import PostOpportunity from '../../components/provider/PostOpportunity';
@@ -11,7 +12,16 @@ import PaginationControl from '../../components/common/PaginationControl';
 import { opportunityService } from '../../services/opportunityService';
 
 export default function ProviderDashboard() {
-  const [activeTab, setActiveTab] = useState('my-opportunities'); // 'my-opportunities' | 'explore' | 'post-opportunity' | 'applicants' | 'profile'
+  const location = useLocation();
+  const [toastMessage, setToastMessage] = useState(location.state?.successMessage || null);
+  const [activeTab, setActiveTab] = useState('my-opportunities'); // 'my-opportunities' | 'explore' | 'post-opportunity' | 'applicants' | 'saved' | 'profile'
+
+  useEffect(() => {
+    if (location.state?.successMessage) {
+      setToastMessage(location.state.successMessage);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
   const [selectedOppForApplicants, setSelectedOppForApplicants] = useState(null);
   const [selectedOppForEditing, setSelectedOppForEditing] = useState(null);
 
@@ -21,6 +31,13 @@ export default function ProviderDashboard() {
   const [exploreError, setExploreError] = useState(null);
   const [explorePage, setExplorePage] = useState(1);
   const [exploreTotalCount, setExploreTotalCount] = useState(0);
+
+  // Saved items state
+  const [savedItems, setSavedItems] = useState([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedError, setSavedError] = useState(null);
+  const [savedPage, setSavedPage] = useState(1);
+  const [savedTotalCount, setSavedTotalCount] = useState(0);
 
   // Explore filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,11 +71,50 @@ export default function ProviderDashboard() {
     }
   };
 
+  const loadSavedOpps = async () => {
+    setSavedLoading(true);
+    setSavedError(null);
+    try {
+      const data = await opportunityService.getSavedOpportunities({ page: savedPage });
+      const results = data.results || [];
+      setSavedItems(results);
+      setSavedTotalCount(data.count ?? results.length);
+    } catch (err) {
+      console.error('Error fetching saved opportunities:', err);
+      setSavedError('Failed to load saved items.');
+    } finally {
+      setSavedLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'explore') {
       loadExploreOpps();
     }
   }, [activeTab, explorePage, selectedCategory, selectedWorkMode, locationQuery]);
+
+  useEffect(() => {
+    loadSavedOpps();
+  }, [activeTab, savedPage]);
+
+  // Derived set of saved opportunity IDs for O(1) checks
+  const savedIdsSet = useMemo(() => {
+    return new Set(savedItems.map((item) => item.opportunity?.id || item.opportunity_id || item.id));
+  }, [savedItems]);
+
+  const handleSaveToggle = async (oppId) => {
+    const isCurrentlySaved = savedIdsSet.has(oppId);
+    try {
+      await opportunityService.toggleSaveOpportunity(oppId, isCurrentlySaved);
+      if (isCurrentlySaved) {
+        setSavedItems((prev) => prev.filter((item) => (item.opportunity?.id || item.id) !== oppId));
+      } else {
+        await loadSavedOpps();
+      }
+    } catch (err) {
+      console.error('Error toggling saved opportunity:', err);
+    }
+  };
 
   const filteredExploreOpps = useMemo(() => {
     return exploreOpps.filter((opp) => {
@@ -175,6 +231,16 @@ export default function ProviderDashboard() {
           </button>
 
           <button
+            onClick={() => setActiveTab('saved')}
+            className={`discovery-tab-btn ${activeTab === 'saved' ? 'active' : ''}`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+            </svg>
+            Saved Items ({savedItems.length})
+          </button>
+
+          <button
             onClick={() => setActiveTab('profile')}
             className={`discovery-tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
           >
@@ -188,10 +254,33 @@ export default function ProviderDashboard() {
 
         {/* CONTENT AREA */}
         <div style={{ marginTop: '24px' }}>
+          {toastMessage && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: '8px',
+                marginBottom: '20px',
+                fontSize: '14px',
+                backgroundColor: '#ecfdf5',
+                color: '#047857',
+                border: '1px solid #a7f3d0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>{toastMessage}</span>
+              <button
+                onClick={() => setToastMessage(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {activeTab === 'my-opportunities' && (
             <MyOpportunities
-              onViewApplicants={handleViewApplicants}
-              onEditOpportunity={handleEditOpportunity}
               onAddNew={handleAddNewOpportunity}
             />
           )}
@@ -247,9 +336,19 @@ export default function ProviderDashboard() {
                     <div className="discovery-grid">
                       {filteredExploreOpps.map((opp) =>
                         opp.category === 'project_collaboration' || opp.is_student_project ? (
-                          <StudentCollabCard key={opp.id} opportunity={opp} />
+                          <StudentCollabCard
+                            key={opp.id}
+                            opportunity={opp}
+                            isSaved={savedIdsSet.has(opp.id)}
+                            onSaveToggle={handleSaveToggle}
+                          />
                         ) : (
-                          <OpportunityCard key={opp.id} opportunity={opp} />
+                          <OpportunityCard
+                            key={opp.id}
+                            opportunity={opp}
+                            isSaved={savedIdsSet.has(opp.id)}
+                            onSaveToggle={handleSaveToggle}
+                          />
                         )
                       )}
                     </div>
@@ -282,6 +381,74 @@ export default function ProviderDashboard() {
               selectedOpportunity={selectedOppForApplicants}
               onSelectOpportunity={(opp) => setSelectedOppForApplicants(opp)}
             />
+          )}
+
+          {activeTab === 'saved' && (
+            <div>
+              {savedLoading && (
+                <div className="discovery-loading-grid">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="skeleton-card">
+                      <div className="skeleton-line badge"></div>
+                      <div className="skeleton-line title"></div>
+                      <div className="skeleton-line subtitle"></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!savedLoading && savedError && (
+                <div className="discovery-error-box">
+                  <p>{savedError}</p>
+                  <button onClick={loadSavedOpps} className="btn-retry">
+                    Retry Loading
+                  </button>
+                </div>
+              )}
+
+              {!savedLoading && !savedError && (
+                <>
+                  {savedItems.length === 0 ? (
+                    <div className="empty-state-box">
+                      <h3>No saved opportunities yet</h3>
+                      <p>Explore opportunities and click the bookmark icon to save them for later.</p>
+                      <button onClick={() => setActiveTab('explore')} className="btn-reset-filters">
+                        Explore Opportunities
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="discovery-grid">
+                      {savedItems.map((item) => {
+                        const opp = item.opportunity || item;
+                        if (!opp || !opp.id) return null;
+                        return opp.category === 'project_collaboration' || opp.is_student_project ? (
+                          <StudentCollabCard
+                            key={opp.id}
+                            opportunity={opp}
+                            isSaved={savedIdsSet.has(opp.id)}
+                            onSaveToggle={handleSaveToggle}
+                          />
+                        ) : (
+                          <OpportunityCard
+                            key={opp.id}
+                            opportunity={opp}
+                            isSaved={savedIdsSet.has(opp.id)}
+                            onSaveToggle={handleSaveToggle}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <PaginationControl
+                    currentPage={savedPage}
+                    totalItems={savedTotalCount}
+                    pageSize={20}
+                    onPageChange={(newPage) => setSavedPage(newPage)}
+                  />
+                </>
+              )}
+            </div>
           )}
 
           {activeTab === 'profile' && <ProviderProfileForm />}

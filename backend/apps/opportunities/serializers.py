@@ -24,6 +24,7 @@ class OpportunityListSerializer(serializers.ModelSerializer):
     """
 
     poster = PosterPublicSerializer(read_only=True)
+    applicants_count = serializers.IntegerField(source="applications.count", read_only=True)
 
     class Meta:
         model = Opportunity
@@ -39,6 +40,7 @@ class OpportunityListSerializer(serializers.ModelSerializer):
             "status",
             "poster",
             "created_at",
+            "applicants_count",
         )
         read_only_fields = fields
 
@@ -49,6 +51,7 @@ class OpportunityDetailSerializer(serializers.ModelSerializer):
     """
 
     poster = PosterPublicSerializer(read_only=True)
+    applicants_count = serializers.IntegerField(source="applications.count", read_only=True)
 
     class Meta:
         model = Opportunity
@@ -74,6 +77,7 @@ class OpportunityDetailSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "updated_at",
+            "applicants_count",
         )
         read_only_fields = fields
 

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { opportunityService } from '../../services/opportunityService';
 import { authService } from '../../services/authService';
 import PaginationControl from '../common/PaginationControl';
 
-export default function MyOpportunities({ onViewApplicants, onEditOpportunity, onAddNew }) {
+export default function MyOpportunities({ onAddNew }) {
+  const navigate = useNavigate();
   const [opportunities, setOpportunities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -43,32 +45,6 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
     loadMyOpportunities();
   }, [currentPage]);
 
-  const handleToggleStatus = async (opp) => {
-    const newStatus = opp.status === 'open' ? 'closed' : 'open';
-    try {
-      await opportunityService.updateOpportunity(opp.id, { status: newStatus });
-      setOpportunities((prev) =>
-        prev.map((item) => (item.id === opp.id ? { ...item, status: newStatus } : item))
-      );
-    } catch (err) {
-      console.error('Error updating status:', err);
-      alert('Failed to update opportunity status.');
-    }
-  };
-
-  const handleDelete = async (oppId) => {
-    if (!window.confirm('Are you sure you want to delete this opportunity listing? This action cannot be undone.')) {
-      return;
-    }
-    try {
-      await opportunityService.deleteOpportunity(oppId);
-      setOpportunities((prev) => prev.filter((item) => item.id !== oppId));
-    } catch (err) {
-      console.error('Error deleting opportunity:', err);
-      alert('Failed to delete opportunity listing.');
-    }
-  };
-
   if (loading) {
     return <div className="discovery-loading">Loading your posted opportunities...</div>;
   }
@@ -79,7 +55,7 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: '700' }}>My Posted Opportunities</h2>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-            Manage your listings, review applicants, and toggle listing status.
+            Overview of your active and past opportunity listings. Click Manage to view details, review applicants, edit, or update listing status.
           </p>
         </div>
         <button onClick={onAddNew} className="btn-primary-sm">
@@ -138,41 +114,19 @@ export default function MyOpportunities({ onViewApplicants, onEditOpportunity, o
                   </span>
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                  <span>Category: {opp.category?.replace('_', ' ')}</span>
-                  <span>Location: {opp.city || opp.work_mode}</span>
-                  <span>Pay: {opp.pay_type} {opp.pay_amount ? `$${opp.pay_amount}` : ''}</span>
-                  <span>Posted: {new Date(opp.created_at).toLocaleDateString()}</span>
+                  <span><strong>Category:</strong> {opp.category?.replace('_', ' ')}</span>
+                  <span><strong>Posted:</strong> {new Date(opp.created_at).toLocaleDateString()}</span>
+                  <span><strong>Applicants:</strong> {opp.applicants_count ?? 0}</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
                 <button
-                  onClick={() => onViewApplicants(opp)}
+                  onClick={() => navigate(`/provider-dashboard/opportunities/${opp.id}`)}
                   className="btn-primary-sm"
-                  style={{ backgroundColor: 'var(--accent-indigo)' }}
+                  style={{ minWidth: '100px' }}
                 >
-                  View Applicants
-                </button>
-                <button
-                  onClick={() => onEditOpportunity(opp)}
-                  className="btn-secondary-link"
-                  style={{ border: '1px solid var(--border-color)', padding: '6px 12px' }}
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleToggleStatus(opp)}
-                  className="btn-secondary-link"
-                  style={{ border: '1px solid var(--border-color)', padding: '6px 12px' }}
-                >
-                  {opp.status === 'open' ? 'Close' : 'Reopen'}
-                </button>
-                <button
-                  onClick={() => handleDelete(opp.id)}
-                  className="btn-secondary-link"
-                  style={{ border: '1px solid #fecaca', color: '#b91c1c', padding: '6px 12px' }}
-                >
-                  Delete
+                  Manage
                 </button>
               </div>
             </div>

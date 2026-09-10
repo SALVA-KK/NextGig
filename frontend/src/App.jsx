@@ -9,6 +9,7 @@ import ResetPassword from './pages/auth/ResetPassword';
 import InvitePage from './pages/auth/InvitePage';
 import UserDashboard from './pages/dashboard/UserDashboard';
 import ProviderDashboard from './pages/dashboard/ProviderDashboard';
+import ManageOpportunity from './pages/provider/ManageOpportunity';
 import Profile from './pages/profile/Profile';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminMFAChallenge from './pages/auth/AdminMFAChallenge';
@@ -42,6 +43,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['provider']}>
               <ProviderDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/provider-dashboard/opportunities/:id"
+          element={
+            <ProtectedRoute allowedRoles={['provider', 'admin']}>
+              <ManageOpportunity />
             </ProtectedRoute>
           }
         />
