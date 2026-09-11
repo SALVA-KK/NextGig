@@ -222,6 +222,44 @@ const formatErrorResponse = (data, defaultFallback = 'Something went wrong. Plea
   return defaultFallback;
 };
 
+/**
+ * Safely decodes a JWT token without external libraries and checks its expiration claim (exp).
+ * Uses base64url to base64 conversion and atob().
+ *
+ * @param {string|null} token - JWT token string
+ * @returns {boolean} True if token is missing, malformed, or expired; false if valid.
+ */
+const isTokenExpired = (token) => {
+  if (!token || typeof token !== 'string') {
+    return true;
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return true;
+  }
+
+  try {
+    let base64Url = parts[1];
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4 !== 0) {
+      base64 += '=';
+    }
+
+    const decoded = atob(base64);
+    const payload = JSON.parse(decoded);
+
+    if (!payload || typeof payload.exp !== 'number') {
+      return true;
+    }
+
+    const currentTime = Math.floor(Date.now() / 1000);
+    return payload.exp <= currentTime;
+  } catch (e) {
+    return true;
+  }
+};
+
 export const authService = {
   /**
    * Authenticate user with Email + Password against Django REST backend (/api/accounts/login/)
@@ -491,10 +529,24 @@ export const authService = {
   },
 
   /**
-   * Check if user is authenticated (access token exists)
+   * Helper method to check token expiration
+   */
+  isTokenExpired: (token) => {
+    return isTokenExpired(token);
+  },
+
+  /**
+   * Check if user is authenticated (valid, unexpired access token exists)
    */
   isAuthenticated: () => {
-    return !!localStorage.getItem('access_token');
+    const token = localStorage.getItem('access_token');
+    if (!token || isTokenExpired(token)) {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('user');
+      return false;
+    }
+    return true;
   },
 
   /**
