@@ -103,6 +103,31 @@ class AdminPanelAPITests(TestCase):
         self.assertTrue(self.provider_profile.is_verified)
         self.assertTrue(self.provider_user.is_verified)
 
+    def test_admin_verifying_provider_creates_notification_without_duplicates(self):
+        """Verifying a provider sends exactly 1 provider_verified notification; re-verifying sends no duplicate."""
+        from apps.notifications.models import Notification
+
+        self.client.force_authenticate(user=self.admin)
+        url = f"/api/admin/providers/{self.provider_profile.id}/verify/"
+
+        # First verification (False -> True)
+        res1 = self.client.patch(url, {"is_verified": True}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+
+        notifs = Notification.objects.filter(
+            recipient=self.provider_user,
+            notification_type=Notification.NotificationType.PROVIDER_VERIFIED,
+        )
+        self.assertEqual(notifs.count(), 1)
+        self.assertIn("You're Verified!", notifs.first().title)
+
+        # Second verification (True -> True, no state change)
+        res2 = self.client.patch(url, {"is_verified": True}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+
+        # Count MUST remain 1 (no duplicate notification created)
+        self.assertEqual(notifs.count(), 1)
+
     # -------------------------------------------------------------------------
     # 3. User Management Tests
     # -------------------------------------------------------------------------

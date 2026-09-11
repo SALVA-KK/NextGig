@@ -16,6 +16,8 @@ class Notification(models.Model):
         OPPORTUNITY_FORCE_CLOSED = "opportunity_force_closed", _("Opportunity Force Closed")
         OPPORTUNITY_REOPENED = "opportunity_reopened", _("Opportunity Reopened")
         PROVIDER_WELCOME = "provider_welcome", _("Welcome Provider")
+        PROVIDER_VERIFIED = "provider_verified", _("Provider Verified")
+        PROVIDER_UNVERIFIED = "provider_unverified", _("Provider Unverified")
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
