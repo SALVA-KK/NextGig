@@ -325,8 +325,10 @@ export default function Login() {
             <label htmlFor="email">Email Address</label>
             <input
               id="email"
+              name="email"
               type="email"
               placeholder="name@example.com"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
@@ -343,8 +345,10 @@ export default function Login() {
             </div>
             <input
               id="password"
+              name="password"
               type="password"
               placeholder="••••••••"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
