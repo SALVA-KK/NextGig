@@ -4,11 +4,20 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import AdminActionLog, CustomUser, PhoneOTP, Invitation, ProviderProfile, Resume
+from .models import (
+    AdminActionLog,
+    CustomUser,
+    Invitation,
+    PhoneOTP,
+    ProviderProfile,
+    Resume,
+    StudentProfile,
+)
 from .utils import get_phone_lookup_variants, normalize_phone_number, verify_recaptcha_token
 
 
@@ -574,6 +583,100 @@ class PublicInvitationSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Error message if token is invalid or expired.")
 
 
+ALLOWED_SOCIAL_KEYS = {"linkedin", "github", "instagram", "twitter", "website"}
+
+
+def validate_social_links(value):
+    """
+    Validates social_links JSON dictionary:
+    - Must be a dictionary.
+    - Keys must be in ALLOWED_SOCIAL_KEYS ('linkedin', 'github', 'instagram', 'twitter', 'website').
+    - Values (if present) must be valid URL strings.
+    """
+    if value is None or value == "":
+        return {}
+    if not isinstance(value, dict):
+        raise serializers.ValidationError("social_links must be a JSON object/dictionary.")
+
+    url_validator = URLValidator()
+    cleaned_links = {}
+
+    for key, val in value.items():
+        if key not in ALLOWED_SOCIAL_KEYS:
+            raise serializers.ValidationError(
+                f"Invalid social platform key '{key}'. Allowed keys are: linkedin, github, instagram, twitter, website."
+            )
+        if val is not None and str(val).strip():
+            val_str = str(val).strip()
+            try:
+                url_validator(val_str)
+            except DjangoValidationError:
+                raise serializers.ValidationError(
+                    {key: f"Invalid URL for platform '{key}'."}
+                )
+            cleaned_links[key] = val_str
+
+    return cleaned_links
+
+
+class StudentProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer for retrieving and updating Student Profiles.
+    `user` is strictly read-only.
+    """
+
+    class Meta:
+        model = StudentProfile
+        fields = (
+            "id",
+            "profile_picture",
+            "profession",
+            "qualification_type",
+            "qualification_name",
+            "institution",
+            "skills",
+            "bio",
+            "availability",
+            "languages",
+            "city",
+            "portfolio_url",
+            "whatsapp_number",
+            "show_phone",
+            "show_whatsapp",
+            "social_links",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_profile_picture(self, value):
+        if value:
+            from .validators import validate_profile_picture_file
+            try:
+                return validate_profile_picture_file(value)
+            except DjangoValidationError as exc:
+                messages = exc.messages if hasattr(exc, "messages") else [str(exc)]
+                raise serializers.ValidationError(messages[0] if len(messages) == 1 else messages)
+        return value
+
+    def validate_social_links(self, value):
+        return validate_social_links(value)
+
+    def validate_skills(self, value):
+        if isinstance(value, str):
+            return [s.strip() for s in value.split(",") if s.strip()]
+        if isinstance(value, list):
+            return [str(s).strip() for s in value if str(s).strip()]
+        return []
+
+    def validate_languages(self, value):
+        if isinstance(value, str):
+            return [l.strip() for l in value.split(",") if l.strip()]
+        if isinstance(value, list):
+            return [str(l).strip() for l in value if str(l).strip()]
+        return []
+
+
 class ProviderProfileSerializer(serializers.ModelSerializer):
     """
     Serializer for retrieving and updating Provider Profiles.
@@ -584,18 +687,27 @@ class ProviderProfileSerializer(serializers.ModelSerializer):
         model = ProviderProfile
         fields = (
             "id",
+            "profile_picture",
             "organization_name",
             "organization_type",
             "description",
             "contact_person",
             "website",
+            "phone_number",
+            "whatsapp_number",
+            "show_phone",
+            "show_whatsapp",
             "address",
             "city",
+            "social_links",
             "is_verified",
             "created_at",
             "updated_at",
         )
         read_only_fields = ("id", "is_verified", "created_at", "updated_at")
+
+    def validate_social_links(self, value):
+        return validate_social_links(value)
 
 
 class ResumeSerializer(serializers.ModelSerializer):

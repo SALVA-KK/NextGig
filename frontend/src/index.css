@@ -1,3 +1,6 @@
+@import "tailwindcss";
+@source "./**/*.{js,jsx,ts,tsx}";
+
 :root {
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --bg-canvas: #f8fafc;
@@ -22,10 +25,12 @@
   --shadow-dropdown: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.05);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 body {

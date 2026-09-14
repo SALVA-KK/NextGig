@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { opportunityService } from '../../services/opportunityService';
 import { api, authService } from '../../services/authService';
 import PaginationControl from '../common/PaginationControl';
+import SocialLinksDisplay from '../common/SocialLinksDisplay';
 
 export default function ApplicantsView({ selectedOpportunity = null, onSelectOpportunity }) {
   const [opportunities, setOpportunities] = useState([]);
@@ -127,7 +128,7 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: '700' }}>Review Applicants</h2>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-            View candidate resumes, review cover notes, and update application status.
+            View candidate profiles, skills, social profiles, cover notes, and update application status.
           </p>
         </div>
 
@@ -191,9 +192,15 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {applicants.map((app) => {
-            const applicantName = app.applicant?.full_name || app.applicant?.email || 'Applicant';
+            const applicantObj = app.applicant || {};
+            const applicantName = applicantObj.full_name || applicantObj.email || 'Applicant';
+            const initial = applicantName.charAt(0).toUpperCase();
             const isDownloading = downloadingId === app.id;
             const errText = downloadError[app.id];
+
+            const professionText = applicantObj.profession || '';
+            const qualificationText = [applicantObj.qualification_name, applicantObj.institution].filter(Boolean).join(' at ');
+            const headline = [professionText, qualificationText].filter(Boolean).join(' • ');
 
             return (
               <div
@@ -202,32 +209,54 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '12px',
+                  gap: '14px',
                   padding: '20px 24px',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-                  <div>
-                    {app.opportunity?.title && (
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: '700',
-                          color: 'var(--accent-indigo, #6366f1)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                          marginBottom: '4px',
-                        }}
-                      >
-                        Applied For: {app.opportunity.title} ({app.opportunity.category?.replace('_', ' ')})
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                    <div className="provider-avatar large" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {applicantObj.profile_picture ? (
+                        <img src={applicantObj.profile_picture} alt={applicantName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <span>{initial}</span>
+                      )}
+                    </div>
+                    <div>
+                      {app.opportunity?.title && (
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            color: 'var(--accent-indigo, #6366f1)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '2px',
+                          }}
+                        >
+                          Applied For: {app.opportunity.title} ({app.opportunity.category?.replace('_', ' ')})
+                        </div>
+                      )}
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>
+                        {applicantName}
+                      </h3>
+                      {headline && (
+                        <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-main)', marginTop: '2px' }}>
+                          {headline}
+                        </p>
+                      )}
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                        <span>Email: {applicantObj.email}</span>
+                        <span>•</span>
+                        <span>Applied: {new Date(app.applied_at).toLocaleDateString()}</span>
+                        {applicantObj.city && (
+                          <>
+                            <span>•</span>
+                            <span>Location: {applicantObj.city}</span>
+                          </>
+                        )}
                       </div>
-                    )}
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>
-                      {applicantName}
-                    </h3>
-                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                      Email: {app.applicant?.email} • Applied: {new Date(app.applied_at).toLocaleDateString()}
-                    </span>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -244,6 +273,40 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                     </span>
                   </div>
                 </div>
+
+                {/* Opted-in Contact Links & Social Profiles */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                  {applicantObj.phone_number && (
+                    <a href={`tel:${applicantObj.phone_number}`} className="btn-secondary" style={{ padding: '3px 10px', fontSize: '12px', borderRadius: '16px', textDecoration: 'none', color: '#047857' }}>
+                      📞 Call: {applicantObj.phone_number}
+                    </a>
+                  )}
+                  {applicantObj.whatsapp_number && (
+                    <a
+                      href={`https://wa.me/${applicantObj.whatsapp_number.replace(/[^0-9]/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary"
+                      style={{ padding: '3px 10px', fontSize: '12px', borderRadius: '16px', textDecoration: 'none', color: '#059669' }}
+                    >
+                      💬 WhatsApp: {applicantObj.whatsapp_number}
+                    </a>
+                  )}
+                  {applicantObj.social_links && (
+                    <SocialLinksDisplay socialLinks={applicantObj.social_links} />
+                  )}
+                </div>
+
+                {/* Skills Tags */}
+                {applicantObj.skills && applicantObj.skills.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {applicantObj.skills.map((skill, sIdx) => (
+                      <span key={sIdx} className="skill-tag" style={{ fontSize: '11px', padding: '2px 8px' }}>
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {app.cover_note && (
                   <div

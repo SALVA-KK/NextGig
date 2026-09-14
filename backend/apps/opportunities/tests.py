@@ -1016,5 +1016,172 @@ class OpportunityClosureAndReopenAPITests(APITestCase):
         self.assertEqual(notifs2.count(), 1)
 
 
+class ContactPrivacyAPITests(APITestCase):
+    """
+    Test suite verifying contact privacy enforcement via real HTTP API endpoints.
+    """
 
+    def setUp(self):
+        from apps.accounts.models import ProviderProfile, StudentProfile
 
+        self.poster_user = User.objects.create_user(
+            email="privacy_poster@example.com",
+            password="Password123!",
+            full_name="Privacy Poster",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+        self.provider_profile, _ = ProviderProfile.objects.get_or_create(user=self.poster_user)
+        self.provider_profile.phone_number = "+919876543210"
+        self.provider_profile.whatsapp_number = "+919876543210"
+        self.provider_profile.show_phone = False
+        self.provider_profile.show_whatsapp = False
+        self.provider_profile.save()
+
+        self.opportunity = Opportunity.objects.create(
+            poster=self.poster_user,
+            title="Privacy Test Opportunity",
+            description="Testing contact privacy endpoint response",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.OPEN,
+        )
+
+        self.applicant_user = User.objects.create_user(
+            email="privacy_applicant@example.com",
+            password="Password123!",
+            full_name="Privacy Applicant",
+            phone_number="+919999999999",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        self.student_profile, _ = StudentProfile.objects.get_or_create(user=self.applicant_user)
+        self.student_profile.whatsapp_number = "+919999999999"
+        self.student_profile.show_phone = False
+        self.student_profile.show_whatsapp = False
+        self.student_profile.save()
+
+        self.application = Application.objects.create(
+            applicant=self.applicant_user,
+            opportunity=self.opportunity,
+            cover_note="Privacy test application note",
+        )
+
+    def test_poster_contact_privacy_hidden_by_default_via_api(self):
+        """GET /api/opportunities/<id>/ masks poster phone & whatsapp when show_phone=False and show_whatsapp=False."""
+        response = self.client.get(f"/api/opportunities/{self.opportunity.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        poster_data = response.data["poster"]
+        self.assertIn("phone_number", poster_data)
+        self.assertIn("whatsapp_number", poster_data)
+        self.assertIsNone(poster_data["phone_number"])
+        self.assertIsNone(poster_data["whatsapp_number"])
+
+    def test_poster_contact_privacy_shown_when_opted_in_via_api(self):
+        """GET /api/opportunities/<id>/ reveals poster phone & whatsapp when show_phone=True and show_whatsapp=True."""
+        self.provider_profile.show_phone = True
+        self.provider_profile.show_whatsapp = True
+        self.provider_profile.save()
+
+        response = self.client.get(f"/api/opportunities/{self.opportunity.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        poster_data = response.data["poster"]
+        self.assertEqual(poster_data["phone_number"], "+919876543210")
+        self.assertEqual(poster_data["whatsapp_number"], "+919876543210")
+
+    def test_applicant_contact_privacy_hidden_by_default_via_api(self):
+        """GET /api/opportunities/<id>/applicants/ masks applicant phone & whatsapp when show_phone=False and show_whatsapp=False."""
+        self.client.force_authenticate(user=self.poster_user)
+        response = self.client.get(f"/api/opportunities/{self.opportunity.pk}/applicants/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data.get("results", response.data)
+        applicant_data = results[0]["applicant"]
+        self.assertIn("phone_number", applicant_data)
+        self.assertIn("whatsapp_number", applicant_data)
+        self.assertIsNone(applicant_data["phone_number"])
+        self.assertIsNone(applicant_data["whatsapp_number"])
+
+    def test_applicant_contact_privacy_shown_when_opted_in_via_api(self):
+        """GET /api/opportunities/<id>/applicants/ reveals applicant phone & whatsapp when show_phone=True and show_whatsapp=True."""
+        self.student_profile.show_phone = True
+        self.student_profile.show_whatsapp = True
+        self.student_profile.save()
+
+        self.client.force_authenticate(user=self.poster_user)
+        response = self.client.get(f"/api/opportunities/{self.opportunity.pk}/applicants/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data.get("results", response.data)
+        applicant_data = results[0]["applicant"]
+        self.assertEqual(applicant_data["phone_number"], "+919999999999")
+        self.assertEqual(applicant_data["whatsapp_number"], "+919999999999")
+
+    def test_student_poster_contact_privacy_hidden_by_default_via_api(self):
+        """GET /api/opportunities/<id>/ masks student poster phone & whatsapp when show_phone=False and show_whatsapp=False."""
+        from apps.accounts.models import StudentProfile
+
+        student_poster = User.objects.create_user(
+            email="student_poster@example.com",
+            password="Password123!",
+            full_name="Student Poster",
+            phone_number="+918888888888",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        st_profile, _ = StudentProfile.objects.get_or_create(user=student_poster)
+        st_profile.whatsapp_number = "+918888888888"
+        st_profile.show_phone = False
+        st_profile.show_whatsapp = False
+        st_profile.save()
+
+        collab_opp = Opportunity.objects.create(
+            poster=student_poster,
+            title="Student Collaboration Project",
+            description="Building open source tool",
+            category=Opportunity.Category.PROJECT_COLLABORATION,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.UNPAID,
+            status=Opportunity.Status.OPEN,
+        )
+
+        response = self.client.get(f"/api/opportunities/{collab_opp.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        poster_data = response.data["poster"]
+        self.assertIn("phone_number", poster_data)
+        self.assertIn("whatsapp_number", poster_data)
+        self.assertIsNone(poster_data["phone_number"])
+        self.assertIsNone(poster_data["whatsapp_number"])
+
+    def test_student_poster_contact_privacy_shown_when_opted_in_via_api(self):
+        """GET /api/opportunities/<id>/ reveals student poster phone & whatsapp when show_phone=True and show_whatsapp=True."""
+        from apps.accounts.models import StudentProfile
+
+        student_poster = User.objects.create_user(
+            email="student_poster_optin@example.com",
+            password="Password123!",
+            full_name="Student Poster Opted In",
+            phone_number="+917777777777",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        st_profile, _ = StudentProfile.objects.get_or_create(user=student_poster)
+        st_profile.whatsapp_number = "+917777777777"
+        st_profile.show_phone = True
+        st_profile.show_whatsapp = True
+        st_profile.save()
+
+        collab_opp = Opportunity.objects.create(
+            poster=student_poster,
+            title="Student Collaboration Project Opted In",
+            description="Building open source tool together",
+            category=Opportunity.Category.PROJECT_COLLABORATION,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.UNPAID,
+            status=Opportunity.Status.OPEN,
+        )
+
+        response = self.client.get(f"/api/opportunities/{collab_opp.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        poster_data = response.data["poster"]
+        self.assertEqual(poster_data["phone_number"], "+917777777777")
+        self.assertEqual(poster_data["whatsapp_number"], "+917777777777")

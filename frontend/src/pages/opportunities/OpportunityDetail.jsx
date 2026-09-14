@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
+import SocialLinksDisplay from '../../components/common/SocialLinksDisplay';
 import { opportunityService } from '../../services/opportunityService';
 import { authService } from '../../services/authService';
 
@@ -277,14 +278,56 @@ export default function OpportunityDetail() {
           </h1>
 
           {/* Poster info strip */}
-          <div className="opp-provider-row" style={{ padding: '12px 16px', background: 'var(--bg-canvas)', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
-            <div className="provider-avatar large">{initial}</div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-main)' }}>{posterName}</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                Posted {created_at ? new Date(created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently'}
-              </span>
+          <div className="opp-provider-row" style={{ padding: '16px', background: 'var(--bg-canvas)', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '24px', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div className="provider-avatar large" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {poster?.profile_picture ? (
+                  <img src={poster.profile_picture} alt={posterName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <span>{initial}</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-main)' }}>
+                  {poster?.organization_name || posterName}
+                </span>
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                  Posted {created_at ? new Date(created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently'}
+                </span>
+              </div>
             </div>
+
+            {/* Poster Contact Details (Server-Side Privacy Enforced) */}
+            <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+              {poster?.email && (
+                <a href={`mailto:${poster.email}`} className="btn-secondary" style={{ padding: '4px 10px', fontSize: '12px', borderRadius: '20px', textDecoration: 'none' }}>
+                  ✉️ {poster.email}
+                </a>
+              )}
+              {poster?.phone_number && (
+                <a href={`tel:${poster.phone_number}`} className="btn-secondary" style={{ padding: '4px 10px', fontSize: '12px', borderRadius: '20px', textDecoration: 'none', color: '#047857' }}>
+                  📞 {poster.phone_number}
+                </a>
+              )}
+              {poster?.whatsapp_number && (
+                <a
+                  href={`https://wa.me/${poster.whatsapp_number.replace(/[^0-9]/g, '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary"
+                  style={{ padding: '4px 10px', fontSize: '12px', borderRadius: '20px', textDecoration: 'none', color: '#059669' }}
+                >
+                  💬 WhatsApp: {poster.whatsapp_number}
+                </a>
+              )}
+            </div>
+
+            {/* Poster Social Links */}
+            {poster?.social_links && (
+              <div style={{ marginTop: '10px' }}>
+                <SocialLinksDisplay socialLinks={poster.social_links} />
+              </div>
+            )}
           </div>
 
           {/* Quick Metrics Bar */}

@@ -1168,6 +1168,185 @@ class StudentResumeTestCase(TestCase):
             self.assertIn("resume_upload_sustained", key_sustained)
 
 
+class StudentProfileTestCase(TestCase):
+    """
+    Test suite for StudentProfile model, view, validators, social links, and privacy enforcement.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+        self.student_user = CustomUser.objects.create_user(
+            email="student_profile_test@example.com",
+            full_name="Profile Student",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.provider_user = CustomUser.objects.create_user(
+            email="provider_profile_test@example.com",
+            full_name="Profile Provider",
+            password="Password123!",
+            role=CustomUser.Role.PROVIDER,
+            is_verified=True,
+        )
+        self.student_profile_url = reverse("accounts:student-profile")
+
+    def test_student_profile_get_and_update_success(self):
+        self.client.force_authenticate(user=self.student_user)
+
+        # GET creates profile on first access
+        get_res = self.client.get(self.student_profile_url)
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+
+        payload = {
+            "profession": "Full Stack Developer",
+            "qualification_type": "degree",
+            "qualification_name": "B.Tech Computer Science",
+            "institution": "IIT Bombay",
+            "skills": ["React", "Django", "Python"],
+            "bio": "Passionate developer building web applications.",
+            "availability": "immediate",
+            "languages": ["English", "Hindi"],
+            "city": "Mumbai",
+            "portfolio_url": "https://alice.dev",
+            "whatsapp_number": "+919876543210",
+            "show_phone": True,
+            "show_whatsapp": True,
+            "social_links": {
+                "linkedin": "https://linkedin.com/in/alicedev",
+                "github": "https://github.com/alicedev",
+            },
+        }
+
+        patch_res = self.client.patch(self.student_profile_url, payload, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data["profession"], "Full Stack Developer")
+        self.assertEqual(patch_res.data["skills"], ["React", "Django", "Python"])
+        self.assertTrue(patch_res.data["show_phone"])
+        self.assertEqual(patch_res.data["social_links"]["github"], "https://github.com/alicedev")
+
+    def test_social_links_validation_allowed_and_disallowed_keys(self):
+        self.client.force_authenticate(user=self.student_user)
+
+        # 1. Valid URLs for all allowed platforms: linkedin, github, instagram, twitter, website
+        valid_payload = {
+            "social_links": {
+                "linkedin": "https://linkedin.com/in/student",
+                "github": "https://github.com/student",
+                "instagram": "https://instagram.com/student",
+                "twitter": "https://x.com/student",
+                "website": "https://studentportfolio.com",
+            }
+        }
+        res_valid = self.client.patch(self.student_profile_url, valid_payload, format="json")
+        self.assertEqual(res_valid.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_valid.data["social_links"]["github"], "https://github.com/student")
+
+        # 2. Unknown key (e.g. "facebook") rejected
+        bad_key_payload = {
+            "social_links": {
+                "facebook": "https://facebook.com/user",
+            }
+        }
+        res_bad_key = self.client.patch(self.student_profile_url, bad_key_payload, format="json")
+        self.assertEqual(res_bad_key.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("social_links", res_bad_key.data)
+
+        # 3. Non-URL value rejected
+        bad_url_payload = {
+            "social_links": {
+                "linkedin": "not-a-valid-url",
+            }
+        }
+        res_bad_url = self.client.patch(self.student_profile_url, bad_url_payload, format="json")
+        self.assertEqual(res_bad_url.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("social_links", res_bad_url.data)
+
+    def test_profile_picture_validation(self):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.student_user)
+
+        # 1. Valid JPEG succeeds
+        img_jpg = Image.new("RGB", (100, 100), color="blue")
+        buf_jpg = BytesIO()
+        img_jpg.save(buf_jpg, format="JPEG")
+        valid_jpg = SimpleUploadedFile("avatar.jpg", buf_jpg.getvalue(), content_type="image/jpeg")
+        res_jpg = self.client.patch(self.student_profile_url, {"profile_picture": valid_jpg}, format="multipart")
+        self.assertEqual(res_jpg.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(res_jpg.data["profile_picture"])
+
+        # 2. Valid PNG succeeds
+        img_png = Image.new("RGB", (100, 100), color="red")
+        buf_png = BytesIO()
+        img_png.save(buf_png, format="PNG")
+        valid_png = SimpleUploadedFile("avatar.png", buf_png.getvalue(), content_type="image/png")
+        res_png = self.client.patch(self.student_profile_url, {"profile_picture": valid_png}, format="multipart")
+        self.assertEqual(res_png.status_code, status.HTTP_200_OK)
+
+        # 3. Valid WEBP succeeds
+        img_webp = Image.new("RGB", (100, 100), color="green")
+        buf_webp = BytesIO()
+        img_webp.save(buf_webp, format="WEBP")
+        valid_webp = SimpleUploadedFile("avatar.webp", buf_webp.getvalue(), content_type="image/webp")
+        res_webp = self.client.patch(self.student_profile_url, {"profile_picture": valid_webp}, format="multipart")
+        self.assertEqual(res_webp.status_code, status.HTTP_200_OK)
+
+        # 4. Wrong file type rejected
+        invalid_txt = SimpleUploadedFile("avatar.txt", b"Plain text file", content_type="text/plain")
+        res_invalid = self.client.patch(self.student_profile_url, {"profile_picture": invalid_txt}, format="multipart")
+        self.assertEqual(res_invalid.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("profile_picture", res_invalid.data)
+
+        # 5. File over 2MB rejected
+        oversized_header = b"\xff\xd8" + b"\x00" * (2 * 1024 * 1024 + 500)
+        oversized_file = SimpleUploadedFile("huge.jpg", oversized_header, content_type="image/jpeg")
+        res_huge = self.client.patch(self.student_profile_url, {"profile_picture": oversized_file}, format="multipart")
+        self.assertEqual(res_huge.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("profile_picture", res_huge.data)
+
+    def test_role_isolation_provider_access_denied(self):
+        # Unauthenticated -> 401
+        res_anon = self.client.get(self.student_profile_url)
+        self.assertEqual(res_anon.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Provider user -> 403
+        self.client.force_authenticate(user=self.provider_user)
+        res_provider = self.client.get(self.student_profile_url)
+        self.assertEqual(res_provider.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_contact_privacy_server_side_enforcement(self):
+        from apps.opportunities.serializers import ApplicantPublicSerializer, PosterPublicSerializer
+        from apps.accounts.models import StudentProfile, ProviderProfile
+
+        # Setup student with phone/whatsapp but privacy toggles FALSE
+        stud_prof, _ = StudentProfile.objects.get_or_create(user=self.student_user)
+        stud_prof.phone_number = "+919876543210"
+        stud_prof.whatsapp_number = "+919876543210"
+        stud_prof.show_phone = False
+        stud_prof.show_whatsapp = False
+        stud_prof.save()
+
+        # Serialize applicant
+        ser_applicant = ApplicantPublicSerializer(self.student_user).data
+        self.assertIsNone(ser_applicant["phone_number"])
+        self.assertIsNone(ser_applicant["whatsapp_number"])
+
+        # Enable privacy toggles TRUE
+        stud_prof.show_phone = True
+        stud_prof.show_whatsapp = True
+        stud_prof.save()
+
+        ser_applicant_opted = ApplicantPublicSerializer(self.student_user).data
+        self.assertEqual(ser_applicant_opted["phone_number"], "+919876543210")
+        self.assertEqual(ser_applicant_opted["whatsapp_number"], "+919876543210")
+
+
+
 
 
 

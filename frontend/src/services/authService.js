@@ -435,6 +435,41 @@ export const authService = {
   },
 
   /**
+   * Fetch student's detailed profile (/api/accounts/student-profile/)
+   */
+  getStudentProfile: async () => {
+    try {
+      const response = await api.get('/accounts/student-profile/');
+      return response.data;
+    } catch (error) {
+      console.error('[authService] getStudentProfile error:', error);
+      if (!error.response) {
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
+      }
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to fetch student profile.', error.response.status));
+    }
+  },
+
+  /**
+   * Update student's detailed profile (/api/accounts/student-profile/)
+   * Accepts JSON payload or FormData (for profile picture upload).
+   */
+  updateStudentProfile: async (profileData) => {
+    try {
+      const isFormData = typeof FormData !== 'undefined' && profileData instanceof FormData;
+      const headers = isFormData ? { 'Content-Type': 'multipart/form-data' } : {};
+      const response = await api.patch('/accounts/student-profile/', profileData, { headers });
+      return response.data;
+    } catch (error) {
+      console.error('[authService] updateStudentProfile error:', error);
+      if (!error.response) {
+        throw new Error('Something went wrong. Please check your internet connection and try again.');
+      }
+      throw new Error(formatErrorResponse(error.response.data, 'Failed to update student profile.', error.response.status));
+    }
+  },
+
+  /**
    * Request password reset link via email (/api/accounts/forgot-password/)
    */
   forgotPassword: async (email, recaptcha_token) => {

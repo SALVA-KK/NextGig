@@ -118,3 +118,56 @@ def validate_resume_file(file):
 
     return file
 
+
+MAX_PROFILE_PICTURE_SIZE = 2 * 1024 * 1024  # 2 MB in bytes
+ALLOWED_PICTURE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
+
+
+def validate_profile_picture_file(file):
+    """
+    Validates uploaded profile picture file:
+    - Must exist and be non-empty
+    - Must not exceed 2 MB in size
+    - Extension must be .jpg, .jpeg, .png, or .webp
+    - Validates image header magic bytes.
+    """
+    import os
+
+    if not file:
+        raise ValidationError(_("Please select an image file."))
+
+    file_size = getattr(file, "size", 0)
+    if not file_size or file_size == 0:
+        raise ValidationError(_("Uploaded image file is empty."))
+
+    if file_size > MAX_PROFILE_PICTURE_SIZE:
+        raise ValidationError(_("File is too large. Maximum allowed profile picture size is 2 MB."))
+
+    filename = getattr(file, "name", "")
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext not in ALLOWED_PICTURE_EXTENSIONS:
+        raise ValidationError(
+            _("Unsupported image file type. Only JPG, PNG, and WEBP images are allowed.")
+        )
+
+    try:
+        file.seek(0)
+        header = file.read(2048)
+        file.seek(0)
+    except Exception:
+        raise ValidationError(_("Unable to read uploaded image. Please select a valid file."))
+
+    if ext in [".jpg", ".jpeg"]:
+        if not header.startswith(b"\xff\xd8"):
+            raise ValidationError(_("Invalid or corrupted JPEG image file."))
+    elif ext == ".png":
+        if not header.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValidationError(_("Invalid or corrupted PNG image file."))
+    elif ext == ".webp":
+        if not (header[:4] == b"RIFF" and header[8:12] == b"WEBP"):
+            raise ValidationError(_("Invalid or corrupted WEBP image file."))
+
+    return file
+
+

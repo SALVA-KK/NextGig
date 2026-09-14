@@ -1,9 +1,11 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .managers import CustomUserManager
+from .validators import validate_profile_picture_file
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
@@ -254,6 +256,77 @@ class Invitation(models.Model):
         return f"Invitation by {self.inviter.email} (token={self.token[:8]}..., is_used={self.is_used})"
 
 
+class StudentProfile(models.Model):
+    """
+    Model representing a student user profile on NextGig.
+    Linked OneToOne with CustomUser where role='student'.
+    """
+
+    class QualificationType(models.TextChoices):
+        DEGREE = "degree", _("Degree")
+        DIPLOMA = "diploma", _("Diploma")
+        CERTIFICATE = "certificate", _("Certificate")
+        SELF_TAUGHT = "self_taught", _("Self-Taught")
+        OTHER = "other", _("Other")
+
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="student_profile",
+    )
+    profile_picture = models.ImageField(
+        _("profile picture"),
+        upload_to="profile_pics/students/%Y/%m/",
+        blank=True,
+        null=True,
+        validators=[validate_profile_picture_file],
+    )
+    profession = models.CharField(_("profession"), max_length=150, blank=True)
+    qualification_type = models.CharField(
+        _("qualification type"),
+        max_length=50,
+        choices=QualificationType.choices,
+        blank=True,
+    )
+    qualification_name = models.CharField(
+        _("qualification name"), max_length=200, blank=True
+    )
+    institution = models.CharField(_("institution"), max_length=200, blank=True)
+    skills = ArrayField(
+        models.CharField(max_length=50), default=list, blank=True
+    )
+    bio = models.TextField(_("bio"), max_length=500, blank=True)
+    availability = models.CharField(
+        _("availability"), max_length=100, blank=True
+    )
+    languages = ArrayField(
+        models.CharField(max_length=50), default=list, blank=True
+    )
+    city = models.CharField(
+        _("city"), max_length=100, blank=True, db_index=True
+    )
+    portfolio_url = models.URLField(_("portfolio URL"), blank=True)
+    whatsapp_number = models.CharField(
+        _("WhatsApp number"), max_length=20, blank=True
+    )
+    show_phone = models.BooleanField(_("show phone number"), default=False)
+    show_whatsapp = models.BooleanField(
+        _("show WhatsApp number"), default=False
+    )
+    social_links = models.JSONField(_("social links"), default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "student_profiles"
+        verbose_name = _("student profile")
+        verbose_name_plural = _("student profiles")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"StudentProfile of {self.user.email}"
+
+
 class ProviderProfile(models.Model):
     """
     Model representing an organization, company, or individual provider profile on NextGig.
@@ -278,6 +351,13 @@ class ProviderProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="provider_profile",
     )
+    profile_picture = models.ImageField(
+        _("profile picture"),
+        upload_to="profile_pics/providers/%Y/%m/",
+        blank=True,
+        null=True,
+        validators=[validate_profile_picture_file],
+    )
     organization_name = models.CharField(max_length=200)
     organization_type = models.CharField(
         max_length=50,
@@ -287,8 +367,13 @@ class ProviderProfile(models.Model):
     description = models.TextField(blank=True)
     contact_person = models.CharField(max_length=100, blank=True)
     website = models.URLField(blank=True)
+    phone_number = models.CharField(_("phone number"), max_length=20, blank=True)
+    whatsapp_number = models.CharField(_("WhatsApp number"), max_length=20, blank=True)
+    show_phone = models.BooleanField(_("show phone number"), default=False)
+    show_whatsapp = models.BooleanField(_("show WhatsApp number"), default=False)
     address = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True, db_index=True)
+    social_links = models.JSONField(_("social links"), default=dict, blank=True)
     is_verified = models.BooleanField(
         default=False,
         help_text=_("Admin verification flag for provider organization."),

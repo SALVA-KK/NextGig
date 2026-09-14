@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import AdminActionLog, CustomUser, ProviderProfile, Resume
+from .models import AdminActionLog, CustomUser, ProviderProfile, Resume, StudentProfile
 
 
 @admin.register(AdminActionLog)
@@ -153,6 +153,42 @@ class CustomUserAdmin(BaseUserAdmin):
     )
 
 
+@admin.register(StudentProfile)
+class StudentProfileAdmin(admin.ModelAdmin):
+    """
+    Admin panel configuration for StudentProfile model.
+    """
+
+    list_display = (
+        "user",
+        "profession",
+        "qualification_type",
+        "city",
+        "created_at",
+    )
+
+    list_filter = (
+        "qualification_type",
+        "availability",
+    )
+
+    search_fields = (
+        "user__email",
+        "user__full_name",
+        "profession",
+        "qualification_name",
+        "institution",
+        "city",
+    )
+
+    ordering = ("-created_at",)
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+
 @admin.register(ProviderProfile)
 class ProviderProfileAdmin(admin.ModelAdmin):
     """
@@ -218,5 +254,3 @@ class ResumeAdmin(admin.ModelAdmin):
         "uploaded_at",
         "updated_at",
     )
-
-

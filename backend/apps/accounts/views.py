@@ -15,7 +15,7 @@ from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -24,7 +24,15 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.opportunities.permissions import IsVerifiedUser
 
-from .models import AdminMFA, CustomUser, PhoneOTP, Invitation, ProviderProfile, Resume
+from .models import (
+    AdminMFA,
+    CustomUser,
+    Invitation,
+    PhoneOTP,
+    ProviderProfile,
+    Resume,
+    StudentProfile,
+)
 from .permissions import IsAdminRole, IsStudentRole
 from .serializers import (
     ChangePasswordSerializer,
@@ -39,6 +47,7 @@ from .serializers import (
     ResetPasswordSerializer,
     ResumeSerializer,
     ResumeUploadSerializer,
+    StudentProfileSerializer,
     StudentRegistrationSerializer,
     UserProfileSerializer,
     VerifyOTPSerializer,
@@ -1258,6 +1267,7 @@ class ProviderProfileView(generics.RetrieveUpdateAPIView):
 
     serializer_class = ProviderProfileSerializer
     permission_classes = [IsAuthenticated, IsProviderUser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_object(self):
         profile, created = ProviderProfile.objects.get_or_create(
@@ -1276,6 +1286,23 @@ class ProviderProfileView(generics.RetrieveUpdateAPIView):
                 event_key=f"provider_welcome:{self.request.user.id}",
             )
         return profile
+
+
+class StudentProfileView(generics.RetrieveUpdateAPIView):
+    """
+    API endpoint for student users to view and update their profile.
+    Only accessible by authenticated users with role='student'.
+    Auto-creates a student profile on first access if none exists yet.
+    """
+
+    serializer_class = StudentProfileSerializer
+    permission_classes = [IsAuthenticated, IsStudentRole]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_object(self):
+        profile, _ = StudentProfile.objects.get_or_create(user=self.request.user)
+        return profile
+
 
 
 def get_user_resume(user):

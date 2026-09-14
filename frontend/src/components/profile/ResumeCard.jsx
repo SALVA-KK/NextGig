@@ -179,7 +179,7 @@ export default function ResumeCard() {
       <div className="resume-card-container">
         {/* Feedback Alert Banner */}
         {message && (
-          <div className={`alert-banner alert-${message.type}`} style={{ marginBottom: '16px' }}>
+          <div className={message.type === 'success' ? 'alert-banner alert-success' : 'alert-banner alert-error'} style={{ marginBottom: '16px' }}>
             {message.text}
           </div>
         )}

@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -13,12 +14,196 @@ from rest_framework.exceptions import PermissionDenied
 class PosterPublicSerializer(serializers.ModelSerializer):
     """
     Public nested representation of the user who posted the opportunity.
+    Enforces server-side contact privacy for poster phone/WhatsApp.
     """
+
+    phone_number = serializers.SerializerMethodField()
+    whatsapp_number = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField()
+    social_links = serializers.SerializerMethodField()
+    organization_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id", "full_name", "email")
+        fields = (
+            "id",
+            "full_name",
+            "email",
+            "phone_number",
+            "whatsapp_number",
+            "profile_picture",
+            "social_links",
+            "organization_name",
+        )
         read_only_fields = fields
+
+    def get_profile(self, user):
+        if getattr(user, "role", None) == "provider":
+            try:
+                return user.provider_profile
+            except ObjectDoesNotExist:
+                return None
+        elif getattr(user, "role", None) == "student":
+            try:
+                return user.student_profile
+            except ObjectDoesNotExist:
+                return None
+        try:
+            return user.provider_profile
+        except ObjectDoesNotExist:
+            try:
+                return user.student_profile
+            except ObjectDoesNotExist:
+                return None
+
+    def get_phone_number(self, user):
+        profile = self.get_profile(user)
+        if profile and getattr(profile, "show_phone", False):
+            if hasattr(profile, "phone_number") and profile.phone_number:
+                return profile.phone_number
+            return getattr(user, "phone_number", None)
+        return None
+
+    def get_whatsapp_number(self, user):
+        profile = self.get_profile(user)
+        if profile and getattr(profile, "show_whatsapp", False):
+            return getattr(profile, "whatsapp_number", None)
+        return None
+
+    def get_profile_picture(self, user):
+        profile = self.get_profile(user)
+        if not profile:
+            return None
+        pic = getattr(profile, "profile_picture", None)
+        if pic and hasattr(pic, "url") and pic.url:
+            return pic.url
+        logo = getattr(profile, "logo", None)
+        if logo and hasattr(logo, "url") and logo.url:
+            return logo.url
+        return None
+
+    def get_social_links(self, user):
+        profile = self.get_profile(user)
+        if profile:
+            return getattr(profile, "social_links", {}) or {}
+        return {}
+
+    def get_organization_name(self, user):
+        profile = self.get_profile(user)
+        if profile and hasattr(profile, "organization_name"):
+            return profile.organization_name
+        return None
+
+
+class ApplicantPublicSerializer(serializers.ModelSerializer):
+    """
+    Public nested representation of an applicant for opportunity posters.
+    Enforces server-side contact privacy (phone/WhatsApp).
+    Nests student profile information (skills, bio, social_links, etc.).
+    """
+
+    phone_number = serializers.SerializerMethodField()
+    whatsapp_number = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField()
+    profession = serializers.SerializerMethodField()
+    qualification_type = serializers.SerializerMethodField()
+    qualification_name = serializers.SerializerMethodField()
+    institution = serializers.SerializerMethodField()
+    skills = serializers.SerializerMethodField()
+    bio = serializers.SerializerMethodField()
+    city = serializers.SerializerMethodField()
+    availability = serializers.SerializerMethodField()
+    languages = serializers.SerializerMethodField()
+    social_links = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "full_name",
+            "email",
+            "phone_number",
+            "whatsapp_number",
+            "profile_picture",
+            "profession",
+            "qualification_type",
+            "qualification_name",
+            "institution",
+            "skills",
+            "bio",
+            "city",
+            "availability",
+            "languages",
+            "social_links",
+        )
+        read_only_fields = fields
+
+    def get_profile(self, user):
+        try:
+            return user.student_profile
+        except ObjectDoesNotExist:
+            return None
+
+    def get_phone_number(self, user):
+        profile = self.get_profile(user)
+        if profile and getattr(profile, "show_phone", False):
+            if hasattr(profile, "phone_number") and profile.phone_number:
+                return profile.phone_number
+            return getattr(user, "phone_number", None)
+        return None
+
+    def get_whatsapp_number(self, user):
+        profile = self.get_profile(user)
+        if profile and getattr(profile, "show_whatsapp", False):
+            return getattr(profile, "whatsapp_number", None)
+        return None
+
+    def get_profile_picture(self, user):
+        profile = self.get_profile(user)
+        if profile and profile.profile_picture:
+            return profile.profile_picture.url
+        return None
+
+    def get_profession(self, user):
+        profile = self.get_profile(user)
+        return profile.profession if profile else ""
+
+    def get_qualification_type(self, user):
+        profile = self.get_profile(user)
+        return profile.qualification_type if profile else ""
+
+    def get_qualification_name(self, user):
+        profile = self.get_profile(user)
+        return profile.qualification_name if profile else ""
+
+    def get_institution(self, user):
+        profile = self.get_profile(user)
+        return profile.institution if profile else ""
+
+    def get_skills(self, user):
+        profile = self.get_profile(user)
+        return profile.skills if profile else []
+
+    def get_bio(self, user):
+        profile = self.get_profile(user)
+        return profile.bio if profile else ""
+
+    def get_city(self, user):
+        profile = self.get_profile(user)
+        return profile.city if profile else ""
+
+    def get_availability(self, user):
+        profile = self.get_profile(user)
+        return profile.availability if profile else ""
+
+    def get_languages(self, user):
+        profile = self.get_profile(user)
+        return profile.languages if profile else []
+
+    def get_social_links(self, user):
+        profile = self.get_profile(user)
+        return profile.social_links if (profile and profile.social_links) else {}
+
 
 
 class OpportunityListSerializer(serializers.ModelSerializer):
@@ -219,7 +404,7 @@ class ApplicantListSerializer(serializers.ModelSerializer):
     Nests applicant user details alongside cover_note, status, applied_at, applicant resume metadata, and opportunity info.
     """
 
-    applicant = PosterPublicSerializer(read_only=True)
+    applicant = ApplicantPublicSerializer(read_only=True)
     opportunity = OpportunityListSerializer(read_only=True)
     has_resume = serializers.SerializerMethodField()
     resume_download_url = serializers.SerializerMethodField()
