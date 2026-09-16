@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SocialLinksInput from '../common/SocialLinksInput';
 import ChangePasswordCard from './ChangePasswordCard';
-import InviteCard from '../dashboard/InviteCard';
 import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
 
 export default function ProfileSettingsTab({
@@ -198,14 +197,6 @@ export default function ProfileSettingsTab({
           Account Security & Authentication
         </h3>
         <ChangePasswordCard />
-      </div>
-
-      {/* REFERRALS & INVITE CARD */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-          Referral & Peer Invitations
-        </h3>
-        <InviteCard />
       </div>
     </div>
   );

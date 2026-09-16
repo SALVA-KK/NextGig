@@ -80,19 +80,6 @@ export default function ProfilePortfolioTab({ profile, role = 'student', onEditC
           <ResumeCard />
         </div>
       )}
-
-      {/* Gig Stories / Case Study Showcase Placeholder Card */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative overflow-hidden space-y-2">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
-          🔒 Upcoming Feature
-        </div>
-        <h3 className="text-base font-extrabold text-slate-900">Gig Showcase & Verified Client Reviews</h3>
-        <p className="text-xs text-slate-500 max-w-lg">
-          {role === 'provider'
-            ? 'Showcase completed gigs, featured client stories, and impact statistics to attract top talent.'
-            : 'Display your top project deliverables, verified employer ratings, and gig stories directly on your profile.'}
-        </p>
-      </div>
     </div>
   );
 }

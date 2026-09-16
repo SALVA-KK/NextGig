@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import ProfileHeader from './ProfileHeader';
 import ProfileTabs from './ProfileTabs';
 import ProfileOverviewTab from './ProfileOverviewTab';
-import ProfileAboutTab from './ProfileAboutTab';
 import ProfilePortfolioTab from './ProfilePortfolioTab';
 import ProfileSettingsTab from './ProfileSettingsTab';
 import { authService } from '../../services/authService';
@@ -190,13 +189,6 @@ export default function ProfileShell({ role = 'student' }) {
 
       {activeTab === 'overview' && (
         <ProfileOverviewTab
-          profile={profile}
-          role={role}
-          onEditClick={() => setActiveTab('settings')}
-        />
-      )}
-      {activeTab === 'about' && (
-        <ProfileAboutTab
           profile={profile}
           role={role}
           onEditClick={() => setActiveTab('settings')}

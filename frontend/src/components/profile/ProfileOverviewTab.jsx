@@ -1,5 +1,6 @@
 import React from 'react';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
+import InviteCard from '../dashboard/InviteCard';
 import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
 
 export default function ProfileOverviewTab({ profile, role = 'student', onEditClick }) {
@@ -15,6 +16,15 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
     return true;
   });
 
+  const formatValue = (field, val) => {
+    if (!val) return null;
+    if (field.type === 'select' && field.options) {
+      const found = field.options.find((opt) => opt.value === val);
+      return found ? found.label : val;
+    }
+    return String(val);
+  };
+
   if (populatedConfigs.length === 0) {
     return (
       <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm space-y-4">
@@ -23,7 +33,7 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
         </div>
         <h3 className="text-lg font-extrabold text-slate-900">Your Overview is Empty</h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto">
-          Add a bio, key skills, spoken languages, or social profiles to stand out on NextGig.
+          Add a bio, key skills, spoken languages, location, or credentials in Settings to display your full overview.
         </p>
         <button
           type="button"
@@ -35,6 +45,12 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
       </div>
     );
   }
+
+  // Group fields logically for clean presentation
+  const textareas = populatedConfigs.filter((c) => c.type === 'textarea');
+  const tagsFields = populatedConfigs.filter((c) => c.type === 'tags');
+  const socialFields = populatedConfigs.filter((c) => c.type === 'social');
+  const detailFields = populatedConfigs.filter((c) => c.type !== 'textarea' && c.type !== 'tags' && c.type !== 'social');
 
   return (
     <div className="space-y-6">
@@ -56,30 +72,26 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
         </button>
       </div>
 
-      {/* Dynamic Config-Driven Overview Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {populatedConfigs.map((field) => {
-          const val = profile[field.key];
+      {/* 1. Bio / Summary Full-Width Section */}
+      {textareas.map((field) => (
+        <div
+          key={field.key}
+          className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3"
+        >
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+            {field.label}
+          </h3>
+          <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line font-medium">
+            {profile[field.key]}
+          </p>
+        </div>
+      ))}
 
-          // Render Textarea (Bio / Description)
-          if (field.type === 'textarea') {
-            return (
-              <div
-                key={field.key}
-                className="md:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3"
-              >
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                  {field.label}
-                </h3>
-                <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line font-medium">
-                  {val}
-                </p>
-              </div>
-            );
-          }
-
-          // Render Tags (Skills / Languages)
-          if (field.type === 'tags') {
+      {/* 2. Skills & Languages Section */}
+      {tagsFields.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {tagsFields.map((field) => {
+            const val = profile[field.key];
             const tags = Array.isArray(val) ? val : [];
             const isSkills = field.key === 'skills';
 
@@ -91,11 +103,11 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
                 <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
                   <span>{field.label}</span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    className={
                       isSkills
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                        : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
+                        ? 'text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200'
+                        : 'text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-700 border-slate-200'
+                    }
                   >
                     {tags.length}
                   </span>
@@ -104,11 +116,11 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
                   {tags.map((tag, idx) => (
                     <span
                       key={idx}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border shadow-sm transition-transform hover:scale-105 ${
+                      className={
                         isSkills
-                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                          : 'bg-slate-100 text-slate-700 border-slate-200'
-                      }`}
+                          ? 'px-3 py-1.5 rounded-xl text-xs font-bold border shadow-sm transition-transform hover:scale-105 bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'px-3 py-1.5 rounded-xl text-xs font-bold border shadow-sm transition-transform hover:scale-105 bg-slate-100 text-slate-700 border-slate-200'
+                      }
                     >
                       {isSkills ? `#${tag}` : `🌐 ${tag}`}
                     </span>
@@ -116,38 +128,60 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
                 </div>
               </div>
             );
-          }
+          })}
+        </div>
+      )}
 
-          // Render Social Links
-          if (field.type === 'social') {
-            return (
-              <div
-                key={field.key}
-                className="md:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3"
-              >
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                  {field.label}
-                </h3>
-                <SocialLinksDisplay socialLinks={val} />
-              </div>
-            );
-          }
+      {/* 3. Credentials & Profile Details Grid */}
+      {detailFields.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+            {role === 'provider' ? 'Organization & Contact Details' : 'Credentials & Background'}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {detailFields.map((field) => {
+              const val = profile[field.key];
+              const displayVal = formatValue(field, val);
 
-          // Standard text / name overview field fallback
-          return (
-            <div
-              key={field.key}
-              className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-1"
-            >
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                {field.label}
-              </span>
-              <p className="text-base font-bold text-slate-900">
-                {String(val)}
-              </p>
-            </div>
-          );
-        })}
+              return (
+                <div
+                  key={field.key}
+                  className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-indigo-300 transition-colors"
+                >
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                      {field.label}
+                    </span>
+                    <p className="text-base font-bold text-slate-900">
+                      {displayVal}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Social Links */}
+      {socialFields.map((field) => (
+        <div
+          key={field.key}
+          className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3"
+        >
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+            {field.label}
+          </h3>
+          <SocialLinksDisplay socialLinks={profile[field.key]} />
+        </div>
+      ))}
+
+      {/* 5. Invite Friends & Peers Section */}
+      <div className="space-y-3 pt-2">
+        <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+          Invite Friends & Peers
+        </h3>
+        <InviteCard />
       </div>
     </div>
   );
