@@ -543,13 +543,17 @@ def verify_recaptcha_token(token, min_score=0.5):
     5. Fails closed (returns False) on network, timeout, or API errors.
     """
     secret_key = getattr(settings, "RECAPTCHA_SECRET_KEY", None)
+    if getattr(settings, "DEBUG", False) and not secret_key:
+        logger.info("reCAPTCHA verification bypassed in DEBUG mode because RECAPTCHA_SECRET_KEY is not set.")
+        return True
+
     if not secret_key:
         logger.error("reCAPTCHA verification failed: RECAPTCHA_SECRET_KEY is not configured in settings/environment.")
         return False
 
     # Bypass for unit test execution if running under Django test suite without explicit token
-    if getattr(settings, "TESTING", False) and (not token or token == "mock_valid_recaptcha_token"):
-        logger.info("reCAPTCHA verification bypassed for mock token/test execution.")
+    if (getattr(settings, "TESTING", False) or getattr(settings, "DEBUG", False)) and (not token or token == "mock_valid_recaptcha_token"):
+        logger.info("reCAPTCHA verification bypassed for mock token/test/debug execution.")
         return True
 
     if not token or not isinstance(token, str):

@@ -10,6 +10,7 @@ export default function ProfileHeader({
 }) {
   const fileInputRef = useRef(null);
   const [avatarError, setAvatarError] = useState(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
 
   const displayName = role === 'provider'
     ? (profile.organization_name || profile.full_name || 'Organization Name')
@@ -27,6 +28,7 @@ export default function ProfileHeader({
     if (!file) return;
 
     setAvatarError(null);
+    setImageLoadError(false);
     if (file.size > 2 * 1024 * 1024) {
       setAvatarError('Image size must be under 2MB.');
       return;
@@ -52,11 +54,12 @@ export default function ProfileHeader({
           {/* Avatar Container with Upload & Corner Camera Badge */}
           <div className="relative group w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0">
             <div className="w-full h-full rounded-full overflow-hidden border-2 border-slate-200 bg-indigo-50 flex items-center justify-center shadow-sm">
-              {avatarUrl ? (
+              {avatarUrl && !imageLoadError ? (
                 <img
                   src={avatarUrl}
                   alt={displayName}
                   className="w-full h-full object-cover"
+                  onError={() => setImageLoadError(true)}
                 />
               ) : (
                 <span className="text-3xl sm:text-4xl font-extrabold text-indigo-600">
