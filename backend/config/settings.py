@@ -248,6 +248,22 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = TESTING
 
+# Celery Broker Fast-Fail Connection & Timeout Settings
+# Prevents Django HTTP worker from hanging for 100+ seconds when Redis is down/unreachable.
+CELERY_BROKER_CONNECTION_TIMEOUT = 2.0
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 2
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "socket_timeout": 2.0,
+    "socket_connect_timeout": 2.0,
+    "max_retries": 2,
+}
+CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {
+    "socket_timeout": 2.0,
+    "socket_connect_timeout": 2.0,
+    "max_retries": 2,
+}
+
 # Celery Beat Periodic Task Schedule
 CELERY_BEAT_SCHEDULE = {
     "close-expired-opportunities-daily": {

@@ -503,14 +503,7 @@ class ApplicationStatusUpdateView(APIView):
                 )
                 def enqueue_status_email():
                     try:
-                        if getattr(settings, "DEBUG", False):
-                            # In DEBUG mode, attempt async delay or fallback without blocking HTTP response
-                            try:
-                                notify_applicant_of_status_change.apply_async((application.id,), expires=5)
-                            except Exception:
-                                pass
-                        else:
-                            notify_applicant_of_status_change.delay(application.id)
+                        notify_applicant_of_status_change.delay(application.id)
                     except Exception as e:
                         logger.warning(f"Failed to enqueue applicant notification task: {e}")
 

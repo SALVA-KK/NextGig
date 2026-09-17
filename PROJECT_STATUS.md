@@ -77,6 +77,41 @@
     - Re-tagged fields in [`profileFieldConfigs.js`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/config/profileFieldConfigs.js) to `tab: 'about'`.
     - Verified via live CDP browser audit across Student and Provider roles (`0 console errors`, all 5 tabs operational).
 
+13. **Admin MFA Management UI Styling Cleanup**:
+    - Simplified layout and styling of Admin MFA setup and management components ([`AdminMFASetup.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/admin/AdminMFASetup.jsx)).
+    - Applied standard light-theme card design tokens (`bg-white`, `border-slate-200`, `shadow-sm`, `rounded-2xl`) matching profile and dashboard design system.
+    - Standardized section spacing, QR code rendering card, backup codes grid layout, and action controls. Verified zero console errors.
+
+14. **Opportunity Category Extension (`full_time`)**:
+    - Added `"full_time"` ("Full-time") choice to `Opportunity.Category` choices in [`backend/apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py).
+    - Updated category options in frontend [`PostOpportunity.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/opportunities/PostOpportunity.jsx) dropdown.
+    - Created and applied database migration `0002_alter_opportunity_category`.
+
+15. **Profile Layout Streamlining (Portfolio Merged into Overview)**:
+    - Merged Portfolio tab content (portfolio/website link card with empty state, student `ResumeCard`, and upcoming gig showcase placeholder) into [`ProfileOverviewTab.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileOverviewTab.jsx) as additional sections below bio, skills, languages, and social links.
+    - Streamlined Profile navigation in [`ProfileShell.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileShell.jsx) and [`ProfileTabs.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileTabs.jsx) to 3 core tabs across Student and Provider roles: **Overview**, **Portfolio** (merged into Overview), and **Settings & Edit**.
+    - Re-tagged portfolio fields in [`profileFieldConfigs.js`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/config/profileFieldConfigs.js) to `tab: 'overview'`.
+
+16. **Celery Broker Connection Resilience & Fast-Fail Timeout**:
+    - Diagnosed Kombu retry policy hanging Django request threads up to ~109s inside `transaction.on_commit` when Redis broker is unreachable.
+    - Configured fast-fail connection settings in [`backend/config/settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py):
+      - `CELERY_BROKER_CONNECTION_TIMEOUT = 2.0`
+      - `CELERY_BROKER_CONNECTION_MAX_RETRIES = 2`
+      - `CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True`
+      - `CELERY_BROKER_TRANSPORT_OPTIONS` & `CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS` (`socket_timeout: 2.0`, `socket_connect_timeout: 2.0`, `max_retries: 2`).
+    - Standardized task dispatch in [`backend/apps/opportunities/views.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/views.py) (`ApplicationCreateView`, `ApplicationStatusUpdateView`) with `_safe_delay_notification()`, wrapping `.delay()` calls in `try/except Exception as e` with `logger.warning` to ensure non-blocking HTTP responses.
+    - Verified Redis-down apply request latency dropped from **109.02s** to **2.08s**, while Redis-up happy path wire latency remains **393ms** with in-app notification creation intact.
+
+17. **Scratch Folder Cleanup & Developer Script Migration**:
+    - Cleaned up session and repository scratch directories (`backend/scratch/`).
+    - Sanitized benchmark scripts and migrated them to [`backend/scripts/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/scripts): `diagnose_apply_performance.py`, `verify_fast_fail_redis_down.py`, `verify_fast_fail_redis_up.py`, and `cleanup_test_db.py`.
+    - Converted user profile seeding script into an idempotent Django management command [`seed_test_users.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/management/commands/seed_test_users.py) under `apps/accounts/management/commands/seed_test_users.py`.
+    - Tested command via `python manage.py seed_test_users`.
+
+18. **Full Test Suite Validation**:
+    - Executed full Django backend unit test suite: **131 passed unit tests** (`Ran 131 tests in 663.200s OK`).
+
+
 ---
 
 ### 1. TECH STACK
@@ -120,8 +155,10 @@
   - `.dockerignore`: Docker context build exclusion manifest
   - `DOCKER.md`: Infrastructure management and troubleshooting guide
   - **`config/`**: Core project settings ([`settings.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/settings.py)), URL router ([`urls.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/urls.py)), Celery setup ([`celery.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/celery.py)), WSGI ([`wsgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/wsgi.py)), and ASGI ([`asgi.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/config/asgi.py)) entrypoints.
-  - **`apps/accounts/`**: Custom user authentication, email verification, password reset, MSG91 SMS fallback, Firebase Phone Auth, Google OAuth, TOTP Admin MFA, user profiles, provider profiles, and invitation links.
+  - **`apps/accounts/`**: Custom user authentication, email verification, password reset, MSG91 SMS fallback, Firebase Phone Auth, Google OAuth, TOTP Admin MFA, user profiles, provider profiles, invitation links, and management commands (`seed_test_users.py`).
   - **`apps/opportunities/`**: Opportunity listings, CRUD REST APIs, saved opportunities (bookmarking), application tracking, categories/work-modes/city filtering, permissions, creation throttling, and Celery async background tasks (`tasks.py`).
+  - **`scripts/`**: Development benchmark and database administration tools (`diagnose_apply_performance.py`, `verify_fast_fail_redis_down.py`, `verify_fast_fail_redis_up.py`, `cleanup_test_db.py`).
+
 - **`frontend/`**:
   - **`src/components/`**: Reusable UI components grouped by feature ([`auth/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/auth), [`dashboard/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/dashboard), [`home/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/home), [`profile/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile)).
   - **`src/pages/`**: Top-level page views ([`auth/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/auth), [`dashboard/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/dashboard), [`admin/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/admin), [`profile/`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/profile), [`Home.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/Home.jsx)).
@@ -161,7 +198,8 @@
 - **`ProviderProfile`** (table `provider_profiles` in [`apps/accounts/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/models.py)):
   - Fields: `id`, `user` (OneToOne to `CustomUser`, related_name `'provider_profile'`), `organization_name`, `organization_type` (choices: `company`, `startup`, `cafe`, `restaurant`, `shop`, `ngo`, `educational_institution`, `freelancer`, `individual`, `event_organizer`, `other`), `description`, `contact_person`, `website`, `address`, `city` (db_index), `is_verified` (boolean, default False, editable only via Admin), `created_at`, `updated_at`.
 - **`Opportunity`** (table `opportunities` in [`apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py)):
-  - Fields: `id`, `poster` (FK to `CustomUser`, related_name `'posted_opportunities'`), `title`, `description`, `category` (choices: `part_time`, `internship`, `freelance`, `startup_hiring`, `project_collaboration`, `tutoring`, `volunteer`, `event_based`), `required_skills` (`ArrayField`), `pay_type` (choices: `hourly`, `monthly`, `stipend`, `unpaid`), `pay_amount`, `duration`, `working_hours`, `work_mode` (choices: `remote`, `onsite`, `hybrid`), `location_text`, `city` (db_index), `latitude`, `longitude`, `vacancies`, `deadline`, `contact_info`, `status` (choices: `open`, `closed`, `draft`, default `'open'`), `created_at`, `updated_at`.
+  - Fields: `id`, `poster` (FK to `CustomUser`, related_name `'posted_opportunities'`), `title`, `description`, `category` (choices: `full_time`, `part_time`, `internship`, `freelance`, `startup_hiring`, `project_collaboration`, `tutoring`, `volunteer`, `event_based`), `required_skills` (`ArrayField`), `pay_type` (choices: `hourly`, `monthly`, `stipend`, `unpaid`), `pay_amount`, `duration`, `working_hours`, `work_mode` (choices: `remote`, `onsite`, `hybrid`), `location_text`, `city` (db_index), `latitude`, `longitude`, `vacancies`, `deadline`, `contact_info`, `status` (choices: `open`, `closed`, `draft`, default `'open'`), `created_at`, `updated_at`.
+
   - Indexes: Ordering by `-created_at`, compound index `opp_status_cat_city_idx` on `(status, category, city)`.
 - **`SavedOpportunity`** (table `saved_opportunities` in [`apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py)):
   - Fields: `id`, `user` (FK to `CustomUser`, related_name `'saved_opportunities'`, on_delete=CASCADE), `opportunity` (FK to `Opportunity`, related_name `'saved_by'`, on_delete=CASCADE), `created_at`.
@@ -244,20 +282,20 @@
   - Beat command: `celery -A config beat --loglevel=info`
   - Container services: `celery_worker` and `celery_beat` in `docker-compose.yml`
   - Tasks: `notify_poster_of_new_application`, `notify_applicant_of_status_change`, and periodic `close_expired_opportunities` (daily via `CELERY_BEAT_SCHEDULE`)
-  - Fallback: Graceful error handling in DEBUG mode if Redis is offline (HTTP API requests succeed seamlessly without failing process flow)
+  - Fallback & Fast-Fail: Configured broker connection resilience (`CELERY_BROKER_CONNECTION_TIMEOUT = 2.0`, `CELERY_BROKER_CONNECTION_MAX_RETRIES = 2`, `socket_timeout = 2.0`) and non-blocking task dispatch (`_safe_delay_notification`). If Redis is offline, HTTP API requests fast-fail in ~2s without blocking request threads or crashing process flow.
 - **Docker & Docker Compose**: **Done**
   - Single-command orchestration: `docker-compose up -d`
   - Services: `db` (PostgreSQL 16), `redis` (Redis 7), `web` (Django dev server), `celery_worker`, `celery_beat`
   - Documentation: [backend/DOCKER.md](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/DOCKER.md)
 - **Unit Tests**:
-  - Test suites: [`apps/accounts/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/tests.py) and [`apps/opportunities/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tests.py).
-  - Total tests: **66 unit tests passed** (`docker-compose exec web python manage.py test apps.accounts.tests apps.opportunities.tests`).
-  - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, Saved Opportunity bookmarking/isolation/idempotency/CASCADE, Applications apply/withdraw/status transitions, student role validation, self-application prevention, poster applicant views, and Celery task execution & Celery Beat opportunity auto-closure.
+  - Test suites: [`apps/accounts/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/tests.py), [`apps/accounts/test_admin_panel.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/test_admin_panel.py), [`apps/opportunities/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/tests.py), and [`apps/notifications/tests.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/notifications/tests.py).
+  - Total tests: **131 unit tests passed** (`python manage.py test apps.accounts.tests apps.accounts.test_admin_panel apps.opportunities.tests apps.notifications.tests`).
+  - Coverage: Accounts auth flows, ProviderProfile CRUD & role validation, anti-enumeration, password complexity, phone OTP, invitations, Opportunity CRUD permissions/validation/filtering, Saved Opportunity bookmarking/isolation/idempotency/CASCADE, Applications apply/withdraw/status transitions, student role validation, self-application prevention, poster applicant views, Celery task execution & Beat auto-closure, and broker fast-fail fallback behavior.
 - **Pagination**: **Done** (Global default `rest_framework.pagination.PageNumberPagination` configured in `settings.py` `REST_FRAMEWORK` with `PAGE_SIZE = 20`; view-level `OpportunityPagination` with `page_size=20`, `max_page_size=100` active across opportunity, application, and saved lists).
-- **Demo Data Seeding**: **Done**
-  - Command: `python manage.py seed_demo_data` (or `docker-compose exec web python manage.py seed_demo_data` if using Docker)
-  - Location: [`backend/apps/opportunities/management/commands/seed_demo_data.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/management/commands/seed_demo_data.py)
-  - Idempotent script that seeds 4 provider accounts with `ProviderProfile`, 3 student accounts, 8 provider opportunity listings across various categories, and 4 student project collaboration listings (`category='project_collaboration'`).
+- **Demo Data & User Seeding**: **Done**
+  - Commands: `python manage.py seed_demo_data` and `python manage.py seed_test_users`
+  - Locations: [`backend/apps/opportunities/management/commands/seed_demo_data.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/management/commands/seed_demo_data.py) and [`backend/apps/accounts/management/commands/seed_test_users.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/accounts/management/commands/seed_test_users.py)
+  - Idempotent scripts that seed demo data, opportunity listings, and test user profiles for development and manual QA.
 
 ---
 
