@@ -464,6 +464,9 @@ class ApplicationCreateSerializer(serializers.ModelSerializer):
         if not opportunity or opportunity.status != Opportunity.Status.OPEN:
             raise serializers.ValidationError("Cannot apply to closed or draft opportunities.")
 
+        if opportunity.deadline and opportunity.deadline < timezone.localdate():
+            raise serializers.ValidationError("This opportunity's deadline has passed.")
+
         if opportunity.poster == user:
             raise serializers.ValidationError("You cannot apply to your own posted opportunity.")
 

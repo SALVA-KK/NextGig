@@ -27,6 +27,7 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
   const formatCategory = (cat) => {
     if (!cat) return 'Opportunity';
     const mapping = {
+      full_time: 'Full-Time',
       part_time: 'Part-Time',
       internship: 'Internship',
       freelance: 'Freelance',

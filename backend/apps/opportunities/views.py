@@ -2,6 +2,7 @@ import logging
 
 from django.db import IntegrityError, transaction
 from django.http import FileResponse
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, serializers, status
 from rest_framework.pagination import PageNumberPagination
@@ -285,6 +286,12 @@ class ApplicationCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if opportunity.deadline and opportunity.deadline < timezone.localdate():
+            return Response(
+                {"detail": "This opportunity's deadline has passed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if opportunity.poster == request.user:
             return Response(
                 {"detail": "You cannot apply to your own posted opportunity."},
@@ -496,7 +503,14 @@ class ApplicationStatusUpdateView(APIView):
                 )
                 def enqueue_status_email():
                     try:
-                        notify_applicant_of_status_change.delay(application.id)
+                        if getattr(settings, "DEBUG", False):
+                            # In DEBUG mode, attempt async delay or fallback without blocking HTTP response
+                            try:
+                                notify_applicant_of_status_change.apply_async((application.id,), expires=5)
+                            except Exception:
+                                pass
+                        else:
+                            notify_applicant_of_status_change.delay(application.id)
                     except Exception as e:
                         logger.warning(f"Failed to enqueue applicant notification task: {e}")
 

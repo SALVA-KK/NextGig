@@ -10,6 +10,7 @@ class Opportunity(models.Model):
     """
 
     class Category(models.TextChoices):
+        FULL_TIME = "full_time", _("Full Time")
         PART_TIME = "part_time", _("Part Time")
         INTERNSHIP = "internship", _("Internship")
         FREELANCE = "freelance", _("Freelance")

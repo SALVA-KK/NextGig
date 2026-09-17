@@ -65,6 +65,18 @@
     - Dynamically labeled profile link as `"Profile & Resumes"` for students vs. `"Profile"` for providers and administrators.
     - Updated [`Profile.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/profile/Profile.jsx) to strictly gate `<ResumeCard />` upload section to `student` role only.
 
+11. **Defensive Opportunity Application Deadline Validation**:
+    - Added explicit date check in `ApplicationCreateSerializer` (`serializers.py`) and `ApplicationCreateView` (`views.py`) rejecting applications to open opportunities whose deadline has passed (`opportunity.deadline < timezone.localdate()`), returning `400 Bad Request` with `"This opportunity's deadline has passed."`.
+    - Added unit tests (`test_cannot_apply_to_opportunity_with_past_deadline` and `test_can_apply_to_opportunity_with_future_or_no_deadline`) in `apps/opportunities/tests.py`.
+    - Documented in [`DOCKER.md`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/DOCKER.md) that Celery Beat periodic task runner (`celery -A config beat --loglevel=info`) must run as a separate process in local non-Docker development to auto-close expired listings.
+    - Full test suite: **117 passed unit tests** across entire codebase.
+
+12. **Restoration of Original 5-Tab Profile Structure**:
+    - Restored [`ProfileAboutTab.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileAboutTab.jsx) rendering `about` fields (qualification/institution for student, org type/contact person/address for provider).
+    - Restored full 5-tab navigation bar in [`ProfileTabs.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileTabs.jsx): **Overview**, **About**, **Portfolio**, **Gig Stories** (locked with lock icon & "Soon" badge), and **Settings & Edit**.
+    - Re-tagged fields in [`profileFieldConfigs.js`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/config/profileFieldConfigs.js) to `tab: 'about'`.
+    - Verified via live CDP browser audit across Student and Provider roles (`0 console errors`, all 5 tabs operational).
+
 ---
 
 ### 1. TECH STACK

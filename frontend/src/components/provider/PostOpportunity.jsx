@@ -151,6 +151,7 @@ export default function PostOpportunity({ initialData = null, onSuccess }) {
               className="select-filter"
               required
             >
+              <option value="full_time">Full Time</option>
               <option value="part_time">Part Time</option>
               <option value="internship">Internship</option>
               <option value="freelance">Freelance</option>

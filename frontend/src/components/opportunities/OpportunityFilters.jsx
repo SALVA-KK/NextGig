@@ -14,6 +14,7 @@ export default function OpportunityFilters({
 }) {
   const categories = [
     { label: 'All Types', value: '' },
+    { label: 'Full-Time', value: 'full_time' },
     { label: 'Internships', value: 'internship' },
     { label: 'Part-Time', value: 'part_time' },
     { label: 'Freelance', value: 'freelance' },

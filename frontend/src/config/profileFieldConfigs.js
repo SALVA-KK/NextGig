@@ -16,6 +16,7 @@ export const AVAILABILITY_CHOICES = [
 ];
 
 export const ORGANIZATION_TYPE_CHOICES = [
+  { value: '', label: 'Select Organization Type' },
   { value: 'company', label: 'Company' },
   { value: 'startup', label: 'Startup' },
   { value: 'cafe', label: 'Cafe' },

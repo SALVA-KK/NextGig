@@ -513,6 +513,72 @@ class ApplicationTests(APITestCase):
         res_draft = self.client.post(draft_url, {"cover_note": "Try draft"})
         self.assertEqual(res_draft.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_cannot_apply_to_opportunity_with_past_deadline(self):
+        """
+        Reject applications to opportunities with past deadlines even if status is still technically 'open'
+        (simulating Celery Beat scheduled task delay).
+        """
+        past_deadline_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Past Deadline Open Gig",
+            description="Celery Beat hasn't closed this yet",
+            category=Opportunity.Category.INTERNSHIP,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.STIPEND,
+            status=Opportunity.Status.OPEN,
+            deadline=date.today() - timedelta(days=1),
+        )
+        self.client.force_authenticate(user=self.student)
+        apply_url = reverse("opportunities:opportunity-apply", kwargs={"pk": past_deadline_opp.pk})
+        response = self.client.post(apply_url, {"cover_note": "Applying late"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"], "This opportunity's deadline has passed.")
+
+        # Direct serializer validation test
+        from rest_framework.test import APIRequestFactory
+        factory = APIRequestFactory()
+        req = factory.post(apply_url, {"cover_note": "Late apply"})
+        req.user = self.student
+        from .serializers import ApplicationCreateSerializer
+        serializer = ApplicationCreateSerializer(data={"cover_note": "Late apply"}, context={"request": req, "opportunity": past_deadline_opp})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("This opportunity's deadline has passed.", str(serializer.errors))
+
+    def test_can_apply_to_opportunity_with_future_or_no_deadline(self):
+        """Confirm applications succeed for opportunities with future deadlines or no deadline set."""
+        future_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Future Deadline Gig",
+            description="Deadline in 5 days",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.OPEN,
+            deadline=date.today() + timedelta(days=5),
+        )
+        no_deadline_opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="No Deadline Gig",
+            description="Rolling basis",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.HOURLY,
+            status=Opportunity.Status.OPEN,
+            deadline=None,
+        )
+
+        self.client.force_authenticate(user=self.student)
+
+        # Future deadline apply
+        url_future = reverse("opportunities:opportunity-apply", kwargs={"pk": future_opp.pk})
+        res_future = self.client.post(url_future, {"cover_note": "Applying early"})
+        self.assertEqual(res_future.status_code, status.HTTP_201_CREATED)
+
+        # No deadline apply
+        url_no_dl = reverse("opportunities:opportunity-apply", kwargs={"pk": no_deadline_opp.pk})
+        res_no_dl = self.client.post(url_no_dl, {"cover_note": "Applying anytime"})
+        self.assertEqual(res_no_dl.status_code, status.HTTP_201_CREATED)
+
     def test_provider_or_unverified_student_cannot_apply(self):
         """Provider or unverified student gets 403 Forbidden when trying to apply."""
         self.client.force_authenticate(user=self.provider)

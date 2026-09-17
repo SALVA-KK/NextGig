@@ -14,6 +14,13 @@ The multi-container Docker setup consists of five orchestrated services:
 4. **`celery_worker`**: Celery asynchronous worker process running `celery -A config worker --loglevel=info`.
 5. **`celery_beat`**: Celery Beat periodic task scheduler running `celery -A config beat --loglevel=info`.
 
+> [!NOTE]
+> **Scheduled Tasks & Opportunity Auto-Close**:
+> For deadlines to auto-close opportunities via the scheduled `close_expired_opportunities` task, Celery Beat must actually be running.
+> - **In Docker**: `celery_beat` runs automatically as a dedicated container process alongside `celery_worker`.
+> - **In Local Development (non-Docker)**: Celery Beat does **NOT** start automatically alongside `python manage.py runserver`. You must run Celery Beat in a separate terminal via `celery -A config beat --loglevel=info` (and Celery Worker via `celery -A config worker --loglevel=info`).
+> - **Defensive Check**: Application creation endpoints include an explicit date check (`opportunity.deadline < today`) to reject late applications even if Celery Beat has not run yet in local development.
+
 ---
 
 ## 🚀 Daily Workflow & Cold Starts

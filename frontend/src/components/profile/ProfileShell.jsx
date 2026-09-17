@@ -8,6 +8,7 @@ import { authService } from '../../services/authService';
 import studentProfileService from '../../services/studentProfileService';
 import providerProfileService from '../../services/providerProfileService';
 import AdminProfileView from './AdminProfileView';
+import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
 
 export default function ProfileShell({ role = 'student' }) {
   if (role === 'admin') {
