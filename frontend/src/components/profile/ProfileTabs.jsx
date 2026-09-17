@@ -3,7 +3,6 @@ import React from 'react';
 export default function ProfileTabs({ activeTab, onTabChange }) {
   const tabs = [
     { id: 'overview', label: 'Overview' },
-    { id: 'portfolio', label: 'Portfolio' },
     { id: 'settings', label: 'Settings & Edit' },
   ];
 

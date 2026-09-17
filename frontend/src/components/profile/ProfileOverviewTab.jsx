@@ -1,6 +1,7 @@
 import React from 'react';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
 import InviteCard from '../dashboard/InviteCard';
+import ResumeCard from './ResumeCard';
 import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
 
 export default function ProfileOverviewTab({ profile, role = 'student', onEditClick }) {
@@ -33,7 +34,7 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
         </div>
         <h3 className="text-lg font-extrabold text-slate-900">Your Overview is Empty</h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto">
-          Add a bio, key skills, spoken languages, location, or credentials in Settings to display your full overview.
+          Add a bio, key skills, spoken languages, location, credentials, or website in Settings to display your full overview.
         </p>
         <button
           type="button"
@@ -49,8 +50,9 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
   // Group fields logically for clean presentation
   const textareas = populatedConfigs.filter((c) => c.type === 'textarea');
   const tagsFields = populatedConfigs.filter((c) => c.type === 'tags');
+  const urlFields = overviewConfigs.filter((c) => c.type === 'url');
   const socialFields = populatedConfigs.filter((c) => c.type === 'social');
-  const detailFields = populatedConfigs.filter((c) => c.type !== 'textarea' && c.type !== 'tags' && c.type !== 'social');
+  const detailFields = populatedConfigs.filter((c) => c.type !== 'textarea' && c.type !== 'tags' && c.type !== 'social' && c.type !== 'url');
 
   return (
     <div className="space-y-6">
@@ -163,7 +165,62 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
         </div>
       )}
 
-      {/* 4. Social Links */}
+      {/* 4. Portfolio / Website Link Card */}
+      {urlFields.map((field) => {
+        const urlVal = profile[field.key];
+        if (!urlVal) {
+          return (
+            <div
+              key={field.key}
+              className="bg-white rounded-2xl p-6 text-center border border-slate-200 shadow-sm space-y-3"
+            >
+              <p className="text-sm font-semibold text-slate-500">
+                No {field.label.toLowerCase()} link added yet.
+              </p>
+              <button
+                type="button"
+                onClick={onEditClick}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+              >
+                Add {field.label} in Settings
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={field.key}
+            className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+          >
+            <div className="space-y-1">
+              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                {field.label}
+              </span>
+              <p className="text-base font-bold text-slate-900 truncate max-w-md">
+                {urlVal}
+              </p>
+            </div>
+            <a
+              href={urlVal.startsWith('http') ? urlVal : `https://${urlVal}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+            >
+              Visit Website ↗
+            </a>
+          </div>
+        );
+      })}
+
+      {/* 5. Resume Card (Student Role ONLY) */}
+      {role === 'student' && (
+        <div className="pt-2">
+          <ResumeCard />
+        </div>
+      )}
+
+      {/* 6. Social Links */}
       {socialFields.map((field) => (
         <div
           key={field.key}
@@ -176,7 +233,7 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
         </div>
       ))}
 
-      {/* 5. Invite Friends & Peers Section */}
+      {/* 7. Invite Friends & Peers Section */}
       <div className="space-y-3 pt-2">
         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
           Invite Friends & Peers

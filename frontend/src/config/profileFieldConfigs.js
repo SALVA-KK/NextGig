@@ -106,7 +106,7 @@ export const STUDENT_FIELD_CONFIG = [
   {
     key: 'portfolio_url',
     label: 'Portfolio Website',
-    tab: 'portfolio',
+    tab: 'overview',
     type: 'url',
     placeholder: 'https://alexjohnson.dev',
   },
@@ -192,7 +192,7 @@ export const PROVIDER_FIELD_CONFIG = [
   {
     key: 'website',
     label: 'Official Website',
-    tab: 'portfolio',
+    tab: 'overview',
     type: 'url',
     placeholder: 'https://acmetech.com',
   },
