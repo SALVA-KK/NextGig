@@ -42,7 +42,34 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
           </div>
 
           <nav className="sidebar-nav">
-            {isProvider ? (
+            {isAdmin ? (
+              <>
+                <div className="nav-group-title">ADMIN PANEL</div>
+
+                <Link
+                  to="/admin"
+                  onClick={onClose}
+                  className={`sidebar-nav-btn ${location.pathname === '/admin' ? 'active' : ''}`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                  </svg>
+                  Admin Control
+                </Link>
+
+                <Link
+                  to="/profile"
+                  onClick={onClose}
+                  className={`sidebar-nav-btn ${location.pathname === '/profile' ? 'active' : ''}`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  Profile
+                </Link>
+              </>
+            ) : isProvider ? (
               <>
                 <div className="nav-group-title">PROVIDER PORTAL</div>
                 <button
@@ -142,7 +169,7 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
 
                 <div className="nav-group-title">MY WORKSPACE</div>
 
-                {/* Saved Items: student and provider roles ONLY (NOT admin) */}
+                {/* Saved Items: student role ONLY */}
                 {canViewSavedItems && (
                   <button
                     onClick={() => handleTabClick('saved')}
@@ -182,15 +209,6 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
                   </svg>
                   {profileLabel}
                 </Link>
-
-                {isAdmin && (
-                  <Link to="/admin" onClick={onClose} className="sidebar-nav-btn admin-link">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                    </svg>
-                    Admin Control
-                  </Link>
-                )}
               </>
             )}
           </nav>

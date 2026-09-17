@@ -39,6 +39,9 @@ export default function AdminDashboard() {
   const [auditPage, setAuditPage] = useState(1);
   const [auditTotalCount, setAuditTotalCount] = useState(0);
 
+  // Admin MFA State
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+
   // Common Feedback State
   const [bannerMessage, setBannerMessage] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -108,7 +111,11 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (activeTab === 'providers') {
+    if (activeTab === 'overview') {
+      authService.getAdminMFAStatus()
+        .then((res) => setMfaEnabled(Boolean(res?.is_enabled)))
+        .catch((err) => console.error('Error loading MFA status:', err));
+    } else if (activeTab === 'providers') {
       loadPendingProviders();
     } else if (activeTab === 'users') {
       loadUsers();
@@ -295,29 +302,59 @@ export default function AdminDashboard() {
 
         {/* TAB 1: OVERVIEW & STATUS */}
         {activeTab === 'overview' && (
-          <div>
-            <div className="dashboard-cards-grid" style={{ marginBottom: '24px' }}>
-              <div className="dashboard-stat-card">
-                <div className="stat-card-header">
-                  <span className="stat-label">Account Status</span>
-                  <span className="status-badge enabled">Active</span>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Account Status Card */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Account Status</span>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Active
+                  </span>
                 </div>
-                <p className="stat-value">{currentUser?.full_name || currentUser?.email}</p>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Role: Administrator
-                </p>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">{currentUser?.full_name || 'System Administrator'}</h3>
+                  <p className="text-sm font-medium text-slate-600">{currentUser?.email}</p>
+                </div>
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                  <span>Role: Administrator</span>
+                  <span>Platform Superuser</span>
+                </div>
               </div>
 
-              <div className="dashboard-stat-card">
-                <div className="stat-card-header">
-                  <span className="stat-label">MFA Status</span>
-                  <span className="status-badge enabled">Active</span>
+              {/* MFA Status Card */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">MFA Protection</span>
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+                    mfaEnabled
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${mfaEnabled ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    {mfaEnabled ? 'Enabled' : 'Disabled'}
+                  </span>
                 </div>
-                <p className="stat-value">Multi-Factor Auth Enforced</p>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Admin endpoints protected
-                </p>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">
+                    {mfaEnabled ? 'Multi-Factor Auth Active' : 'Multi-Factor Auth Optional'}
+                  </h3>
+                  <p className="text-sm font-medium text-slate-600">
+                    {mfaEnabled
+                      ? 'Admin endpoints protected via TOTP authenticator app.'
+                      : 'Enhanced security available for administrative account.'}
+                  </p>
+                </div>
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-medium">
+                  <span className="text-slate-500">Status: {mfaEnabled ? 'Enforced' : 'Not setup'}</span>
+                  <a href="/admin/mfa-setup" className="font-bold text-indigo-600 hover:text-indigo-700">
+                    {mfaEnabled ? 'Manage MFA' : 'Setup MFA'} →
+                  </a>
+                </div>
               </div>
+
             </div>
 
             <ChangePasswordCard />
@@ -661,63 +698,74 @@ export default function AdminDashboard() {
 
         {/* TAB 5: AUDIT TRAIL */}
         {activeTab === 'audit' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '800' }}>Administrative Audit Log</h3>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                Total Action Records: {auditTotalCount}
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Administrative Audit Log</h3>
+                <p className="text-xs text-slate-500">Immutable system action logs for compliance and security auditing.</p>
+              </div>
+              <span className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+                Total Records: {auditTotalCount}
               </span>
             </div>
 
-            <div className="table-responsive">
-              <table className="dashboard-table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Admin Email</th>
-                    <th>Action</th>
-                    <th>Target Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLoading ? (
-                    <tr>
-                      <td colSpan="4" style={{ textAlign: 'center', padding: '24px' }}>Loading audit logs...</td>
+            {auditLoading ? (
+              <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 font-medium">
+                Loading audit logs...
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                      <th className="px-6 py-4">Timestamp</th>
+                      <th className="px-6 py-4">Admin Email</th>
+                      <th className="px-6 py-4">Action</th>
+                      <th className="px-6 py-4">Target Details</th>
                     </tr>
-                  ) : auditLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                        No administrative actions recorded yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    auditLogs.map((log) => (
-                      <tr key={log.id}>
-                        <td style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>
-                          {new Date(log.timestamp).toLocaleString()}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {auditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-12 text-center text-slate-500 font-medium">
+                          No administrative actions recorded yet.
                         </td>
-                        <td style={{ fontWeight: '600' }}>{log.admin_email}</td>
-                        <td>
-                          <span
-                            className="status-badge"
-                            style={{
-                              backgroundColor: log.action_type.includes('verified') || log.action_type.includes('activated') ? '#ecfdf5' : '#fef2f2',
-                              color: log.action_type.includes('verified') || log.action_type.includes('activated') ? '#047857' : '#b91c1c',
-                              fontSize: '12px',
-                            }}
-                          >
-                            {log.action_type_display}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '13px' }}>{log.target_description}</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ) : (
+                      auditLogs.map((log) => {
+                        const isPositive = log.action_type.includes('verified') || log.action_type.includes('activated') || log.action_type.includes('create') || log.action_type.includes('reopen');
+                        return (
+                          <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 text-xs font-semibold text-slate-600 whitespace-nowrap">
+                              {new Date(log.timestamp).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 font-bold text-slate-900">
+                              {log.admin_email}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+                                  isPositive
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                                }`}
+                              >
+                                {log.action_type_display || log.action_type}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-xs text-slate-700 font-medium">
+                              {log.target_description}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-            {auditTotalCount > 20 && (
+            {!auditLoading && auditTotalCount > 20 && (
               <PaginationControl
                 currentPage={auditPage}
                 totalItems={auditTotalCount}

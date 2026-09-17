@@ -7,9 +7,13 @@ import ProfileSettingsTab from './ProfileSettingsTab';
 import { authService } from '../../services/authService';
 import studentProfileService from '../../services/studentProfileService';
 import providerProfileService from '../../services/providerProfileService';
-import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
+import AdminProfileView from './AdminProfileView';
 
 export default function ProfileShell({ role = 'student' }) {
+  if (role === 'admin') {
+    return <AdminProfileView />;
+  }
+
   const [activeTab, setActiveTab] = useState('overview');
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
