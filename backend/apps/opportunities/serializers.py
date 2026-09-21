@@ -22,6 +22,7 @@ class PosterPublicSerializer(serializers.ModelSerializer):
     profile_picture = serializers.SerializerMethodField()
     social_links = serializers.SerializerMethodField()
     organization_name = serializers.SerializerMethodField()
+    is_verified = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -34,6 +35,7 @@ class PosterPublicSerializer(serializers.ModelSerializer):
             "profile_picture",
             "social_links",
             "organization_name",
+            "is_verified",
         )
         read_only_fields = fields
 
@@ -93,6 +95,12 @@ class PosterPublicSerializer(serializers.ModelSerializer):
         if profile and hasattr(profile, "organization_name"):
             return profile.organization_name
         return None
+
+    def get_is_verified(self, user):
+        profile = self.get_profile(user)
+        if profile and hasattr(profile, "is_verified"):
+            return bool(profile.is_verified)
+        return False
 
 
 class ApplicantPublicSerializer(serializers.ModelSerializer):

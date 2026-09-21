@@ -289,9 +289,17 @@ export default function OpportunityDetail() {
                 )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-main)' }}>
-                  {poster?.organization_name || posterName}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-main)' }}>
+                    {poster?.organization_name || posterName}
+                  </span>
+                  {poster?.is_verified && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Verified Provider
+                    </span>
+                  )}
+                </div>
                 <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                   Posted {created_at ? new Date(created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently'}
                 </span>
