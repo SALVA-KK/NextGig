@@ -15,10 +15,10 @@ export default function PaginationControl({
   pageSize = 20,
   onPageChange
 }) {
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const totalPages = Math.ceil((totalItems || 0) / pageSize);
 
-  // If there's only 1 page or no items, don't show pagination controls unless totalItems > pageSize
-  if (totalItems <= pageSize) {
+  // Return null if no items or total pages <= 1
+  if (!totalItems || totalItems <= 0 || totalPages <= 1 || totalItems <= pageSize) {
     return null;
   }
 

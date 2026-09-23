@@ -228,7 +228,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <DashboardLayout title="Admin Control Panel">
+    <DashboardLayout activeTab={activeTab} setActiveTab={setActiveTab}>
       <div className="discovery-container">
         
         {/* HEADER INTRO */}
@@ -266,39 +266,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* TABS BAR */}
-        <div className="discovery-tab-bar" style={{ marginBottom: '24px' }}>
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`discovery-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-          >
-            Overview & Status
-          </button>
-          <button
-            onClick={() => setActiveTab('providers')}
-            className={`discovery-tab-btn ${activeTab === 'providers' ? 'active' : ''}`}
-          >
-            Provider Verification
-          </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`discovery-tab-btn ${activeTab === 'users' ? 'active' : ''}`}
-          >
-            User Management
-          </button>
-          <button
-            onClick={() => setActiveTab('opportunities')}
-            className={`discovery-tab-btn ${activeTab === 'opportunities' ? 'active' : ''}`}
-          >
-            Opportunity Moderation
-          </button>
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`discovery-tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
-          >
-            Audit Trail
-          </button>
-        </div>
+
 
         {/* TAB 1: OVERVIEW & STATUS */}
         {activeTab === 'overview' && (

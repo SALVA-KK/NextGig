@@ -33,3 +33,5 @@ backend/celerybeat-schedule*
 
 # Django uploaded media
 backend/media/
+
+backend/scratch/

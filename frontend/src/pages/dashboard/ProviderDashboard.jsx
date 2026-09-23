@@ -27,6 +27,7 @@ export default function ProviderDashboard() {
 
   // Explore tab state
   const [exploreOpps, setExploreOpps] = useState([]);
+  const [exploreSubTab, setExploreSubTab] = useState('all'); // 'all' | 'collaborations'
   const [exploreLoading, setExploreLoading] = useState(false);
   const [exploreError, setExploreError] = useState(null);
   const [explorePage, setExplorePage] = useState(1);
@@ -45,18 +46,22 @@ export default function ProviderDashboard() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedWorkMode, setSelectedWorkMode] = useState('');
 
-  // Reset explore page when filters change
+  // Reset explore page when filters or subTab change
   useEffect(() => {
     setExplorePage(1);
-  }, [selectedCategory, selectedWorkMode, locationQuery, searchQuery]);
+  }, [exploreSubTab, selectedCategory, selectedWorkMode, locationQuery, searchQuery]);
 
   const loadExploreOpps = async () => {
     setExploreLoading(true);
     setExploreError(null);
     try {
+      const categoryParam = (exploreSubTab === 'collaborations')
+        ? 'project_collaboration'
+        : (selectedCategory || undefined);
+
       const data = await opportunityService.getOpportunities({
         page: explorePage,
-        category: selectedCategory || undefined,
+        category: categoryParam,
         work_mode: selectedWorkMode || undefined,
         city: locationQuery || undefined,
       });
@@ -91,7 +96,7 @@ export default function ProviderDashboard() {
     if (activeTab === 'explore') {
       loadExploreOpps();
     }
-  }, [activeTab, explorePage, selectedCategory, selectedWorkMode, locationQuery]);
+  }, [activeTab, explorePage, exploreSubTab, selectedCategory, selectedWorkMode, locationQuery]);
 
   useEffect(() => {
     loadSavedOpps();
@@ -175,84 +180,6 @@ export default function ProviderDashboard() {
             Post new student gigs and internships, review applications and candidate resumes, explore the public opportunity feed, and keep your organization profile updated.
           </p>
         </section>
-
-        {/* TAB NAVIGATION */}
-        <div className="discovery-tab-bar">
-          <button
-            onClick={() => {
-              setSelectedOppForEditing(null);
-              setActiveTab('my-opportunities');
-            }}
-            className={`discovery-tab-btn ${activeTab === 'my-opportunities' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-            </svg>
-            My Opportunities
-          </button>
-
-          <button
-            onClick={() => setActiveTab('explore')}
-            className={`discovery-tab-btn ${activeTab === 'explore' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            Explore Opportunities
-          </button>
-
-          <button
-            onClick={() => {
-              setSelectedOppForEditing(null);
-              setActiveTab('post-opportunity');
-            }}
-            className={`discovery-tab-btn ${activeTab === 'post-opportunity' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            {selectedOppForEditing ? 'Edit Opportunity' : 'Post New Opportunity'}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('applicants')}
-            className={`discovery-tab-btn ${activeTab === 'applicants' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            Applicants
-          </button>
-
-          <button
-            onClick={() => setActiveTab('saved')}
-            className={`discovery-tab-btn ${activeTab === 'saved' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-            </svg>
-            Saved Items ({savedItems.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`discovery-tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            Provider Profile
-          </button>
-        </div>
-
-        {/* CONTENT AREA */}
         <div style={{ marginTop: '24px' }}>
           {toastMessage && (
             <div
@@ -287,6 +214,36 @@ export default function ProviderDashboard() {
 
           {activeTab === 'explore' && (
             <div>
+              <div className="flex space-x-2 border-b border-gray-200 dark:border-gray-700 mb-6">
+                <button
+                  onClick={() => setExploreSubTab('all')}
+                  className={`px-4 py-2.5 font-medium text-sm rounded-t-lg transition-colors ${
+                    exploreSubTab === 'all'
+                      ? 'bg-indigo-50 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 font-semibold'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                  }`}
+                >
+                  All
+                </button>
+
+                <button
+                  onClick={() => setExploreSubTab('collaborations')}
+                  className={`px-4 py-2.5 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-1.5 ${
+                    exploreSubTab === 'collaborations'
+                      ? 'bg-indigo-50 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 font-semibold'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                  }`}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                  </svg>
+                  Collaborations
+                </button>
+              </div>
+
               <OpportunityFilters
                 activeTab="opportunities"
                 searchQuery={searchQuery}

@@ -62,7 +62,7 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
   };
 
   return (
-    <div className="opp-card">
+    <div className="opp-card cursor-pointer" onClick={handleNavigate}>
       <div className="opp-card-top">
         <div className="opp-card-badge-row">
           <span className={`opp-category-badge cat-${category}`}>{formatCategory(category)}</span>
@@ -89,7 +89,7 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
         </button>
       </div>
 
-      <div className="opp-card-body" onClick={handleNavigate}>
+      <div className="opp-card-body">
         <h3 className="opp-card-title">{title}</h3>
         
         <div className="opp-provider-row">
@@ -137,13 +137,6 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
             <span className="deadline-text">Due {new Date(deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
           )}
         </div>
-
-        <button 
-          onClick={handleNavigate} 
-          className="btn-opp-action"
-        >
-          View Details
-        </button>
       </div>
     </div>
   );
