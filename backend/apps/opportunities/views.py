@@ -14,9 +14,10 @@ from rest_framework.views import APIView
 from apps.accounts.views import get_user_resume
 
 
+from apps.accounts.permissions import IsStudentRole
 from apps.notifications.models import Notification
 from apps.notifications.services import create_notification
-from .models import Application, Opportunity, SavedOpportunity
+from .models import Application, Opportunity, SavedOpportunity, RecommendedOpportunity
 from .permissions import IsApplicantOrPoster, IsOwnerOrReadOnly, IsVerifiedUser, IsProviderUser
 from .serializers import (
     ApplicantListSerializer,
@@ -26,6 +27,7 @@ from .serializers import (
     OpportunityCreateUpdateSerializer,
     OpportunityDetailSerializer,
     OpportunityListSerializer,
+    RecommendedOpportunitySerializer,
     SavedOpportunitySerializer,
 )
 from .tasks import notify_applicant_of_status_change, notify_poster_of_new_application
@@ -250,6 +252,32 @@ class SavedOpportunityListView(generics.ListAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+class RecommendedOpportunitiesListView(generics.ListAPIView):
+    """
+    API endpoint to list daily algorithmic opportunity recommendations for the requesting student user.
+    Gated strictly to student accounts (returns 403 Forbidden for provider/admin users).
+    """
+
+    permission_classes = [IsAuthenticated, IsStudentRole]
+    serializer_class = RecommendedOpportunitySerializer
+    pagination_class = OpportunityPagination
+
+    def get_queryset(self):
+        return RecommendedOpportunity.objects.filter(
+            student=self.request.user,
+            opportunity__status=Opportunity.Status.OPEN,
+        ).select_related("opportunity", "opportunity__poster").order_by("-score", "-created_at")
+
+    @extend_schema(
+        summary="List student's daily recommended opportunities",
+        description="Returns a paginated list of algorithmic opportunity recommendations matched to the authenticated student's profile.",
+        responses={200: RecommendedOpportunitySerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 
 class ApplicationCreateView(APIView):

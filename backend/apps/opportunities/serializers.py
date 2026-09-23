@@ -3,7 +3,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Application, Opportunity, SavedOpportunity
+from .models import Application, Opportunity, SavedOpportunity, RecommendedOpportunity
 
 User = get_user_model()
 
@@ -382,6 +382,21 @@ class SavedOpportunitySerializer(serializers.ModelSerializer):
         model = SavedOpportunity
         fields = ("id", "opportunity", "saved_at")
         read_only_fields = ("id", "opportunity", "saved_at")
+
+
+class RecommendedOpportunitySerializer(serializers.ModelSerializer):
+    """
+    Serializer for daily recommended opportunities.
+    Nests OpportunityListSerializer representation and exposes match score.
+    """
+
+    opportunity = OpportunityListSerializer(read_only=True)
+
+    class Meta:
+        model = RecommendedOpportunity
+        fields = ("id", "score", "opportunity", "created_at")
+        read_only_fields = fields
+
 
 
 class ApplicationSerializer(serializers.ModelSerializer):

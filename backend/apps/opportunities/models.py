@@ -187,3 +187,33 @@ class Application(models.Model):
     def __str__(self):
         return f"{self.applicant.email} applied for '{self.opportunity.title}' ({self.status})"
 
+
+class RecommendedOpportunity(models.Model):
+    """
+    Model representing daily algorithmic opportunity recommendations for student users.
+    """
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="recommended_opportunities",
+        on_delete=models.CASCADE,
+    )
+    opportunity = models.ForeignKey(
+        Opportunity,
+        related_name="recommended_for",
+        on_delete=models.CASCADE,
+    )
+    score = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "recommended_opportunities"
+        verbose_name = _("recommended opportunity")
+        verbose_name_plural = _("recommended opportunities")
+        unique_together = ("student", "opportunity")
+        ordering = ["-score", "-created_at"]
+
+    def __str__(self):
+        return f"Rec for {self.student.email}: '{self.opportunity.title}' (score={self.score})"
+
+

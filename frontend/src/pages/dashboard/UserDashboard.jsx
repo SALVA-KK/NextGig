@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import OpportunityFilters from '../../components/opportunities/OpportunityFilters';
 import OpportunityCard from '../../components/opportunities/OpportunityCard';
@@ -7,7 +8,9 @@ import PaginationControl from '../../components/common/PaginationControl';
 import { opportunityService } from '../../services/opportunityService';
 
 export default function UserDashboard() {
-  const [activeTab, setActiveTab] = useState('opportunities'); // 'opportunities' | 'collaborations' | 'saved' | 'applications'
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState('opportunities'); // 'opportunities' | 'saved' | 'applications'
+  const [oppSubTab, setOppSubTab] = useState('all'); // 'all' | 'recommended' | 'collaborations'
   const [opportunities, setOpportunities] = useState([]);
   const [savedItems, setSavedItems] = useState([]);
   const [applications, setApplications] = useState([]);
@@ -27,30 +30,53 @@ export default function UserDashboard() {
   // Detail Modal state
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
 
-  // Reset page to 1 when filters or active tab change
+  // Sync URL search params for tab/subTab selection (e.g., from notifications)
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const subTabParam = searchParams.get('subTab') || searchParams.get('tab');
+    if (subTabParam === 'recommended') {
+      setActiveTab('opportunities');
+      setOppSubTab('recommended');
+    } else if (subTabParam === 'collaborations') {
+      setActiveTab('opportunities');
+      setOppSubTab('collaborations');
+    }
+  }, [location.search]);
+
+  // Reset page to 1 when filters or active subTab change
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, selectedCategory, selectedWorkMode, locationQuery, searchQuery]);
+  }, [activeTab, oppSubTab, selectedCategory, selectedWorkMode, locationQuery, searchQuery]);
 
   // Fetch initial opportunities and user state
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const categoryParam = activeTab === 'collaborations'
-        ? 'project_collaboration'
-        : (selectedCategory || undefined);
-
-      const [oppsData, savedData, appsData] = await Promise.all([
-        opportunityService.getOpportunities({
-          page: (activeTab === 'opportunities' || activeTab === 'collaborations') ? currentPage : 1,
-          category: categoryParam,
-          work_mode: selectedWorkMode || undefined,
-          city: locationQuery || undefined
-        }),
+      let oppsData = { results: [], count: 0 };
+      const [savedData, appsData] = await Promise.all([
         opportunityService.getSavedOpportunities({ page: activeTab === 'saved' ? currentPage : 1 }),
         opportunityService.getMyApplications({ page: activeTab === 'applications' ? currentPage : 1 })
       ]);
+
+      if (activeTab === 'opportunities') {
+        if (oppSubTab === 'recommended') {
+          oppsData = await opportunityService.getRecommendedOpportunities({ page: currentPage });
+          const recResults = (oppsData.results || []).map(r => r.opportunity || r);
+          oppsData = { ...oppsData, results: recResults };
+        } else {
+          const categoryParam = (oppSubTab === 'collaborations')
+            ? 'project_collaboration'
+            : (selectedCategory || undefined);
+
+          oppsData = await opportunityService.getOpportunities({
+            page: currentPage,
+            category: categoryParam,
+            work_mode: selectedWorkMode || undefined,
+            city: locationQuery || undefined
+          });
+        }
+      }
 
       const oppsList = oppsData.results || [];
       const savedList = savedData.results || [];
@@ -60,7 +86,7 @@ export default function UserDashboard() {
       setSavedItems(savedList);
       setApplications(appsList);
 
-      if (activeTab === 'opportunities' || activeTab === 'collaborations') {
+      if (activeTab === 'opportunities') {
         setTotalCount(oppsData.count ?? oppsList.length);
       } else if (activeTab === 'saved') {
         setTotalCount(savedData.count ?? savedList.length);
@@ -77,7 +103,7 @@ export default function UserDashboard() {
 
   useEffect(() => {
     loadData();
-  }, [currentPage, activeTab, selectedCategory, selectedWorkMode, locationQuery]);
+  }, [currentPage, activeTab, oppSubTab, selectedCategory, selectedWorkMode, locationQuery]);
 
   // Derived sets for quick O(1) checks
   const savedIdsSet = useMemo(() => {
@@ -116,13 +142,6 @@ export default function UserDashboard() {
   // Client-side text & category filtering
   const filteredOpportunities = useMemo(() => {
     return opportunities.filter(opp => {
-      // Filter out student projects if on main 'opportunities' tab, or filter only student projects if on 'collaborations'
-      if (activeTab === 'opportunities') {
-        if (opp.category === 'project_collaboration' || opp.is_student_project) return false;
-      } else if (activeTab === 'collaborations') {
-        if (opp.category !== 'project_collaboration' && !opp.is_student_project) return false;
-      }
-
       // Search query filter (matches title, description, skills, provider)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -144,7 +163,7 @@ export default function UserDashboard() {
 
       return true;
     });
-  }, [opportunities, activeTab, searchQuery, locationQuery]);
+  }, [opportunities, searchQuery, locationQuery]);
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -180,19 +199,6 @@ export default function UserDashboard() {
           </button>
 
           <button
-            onClick={() => setActiveTab('collaborations')}
-            className={`discovery-tab-btn ${activeTab === 'collaborations' ? 'active' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            Student Collaborations
-          </button>
-
-          <button
             onClick={() => setActiveTab('saved')}
             className={`discovery-tab-btn ${activeTab === 'saved' ? 'active' : ''}`}
           >
@@ -214,8 +220,55 @@ export default function UserDashboard() {
           </button>
         </div>
 
-        {/* SEARCH & FILTERS (Active on Opportunities & Collaborations tabs) */}
-        {(activeTab === 'opportunities' || activeTab === 'collaborations') && (
+        {/* SUB-TABS ON OPPORTUNITIES PAGE (All / Recommended / Collaborations) */}
+        {activeTab === 'opportunities' && (
+          <div className="flex space-x-2 border-b border-gray-200 dark:border-gray-700 mb-6">
+            <button
+              onClick={() => setOppSubTab('all')}
+              className={`px-4 py-2.5 font-medium text-sm rounded-t-lg transition-colors ${
+                oppSubTab === 'all'
+                  ? 'bg-indigo-50 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 font-semibold'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              }`}
+            >
+              All
+            </button>
+
+            <button
+              onClick={() => setOppSubTab('recommended')}
+              className={`px-4 py-2.5 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-1.5 ${
+                oppSubTab === 'recommended'
+                  ? 'bg-indigo-50 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 font-semibold'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              }`}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+              </svg>
+              Recommended
+            </button>
+
+            <button
+              onClick={() => setOppSubTab('collaborations')}
+              className={`px-4 py-2.5 font-medium text-sm rounded-t-lg transition-colors flex items-center gap-1.5 ${
+                oppSubTab === 'collaborations'
+                  ? 'bg-indigo-50 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 font-semibold'
+                  : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              }`}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+              Collaborations
+            </button>
+          </div>
+        )}
+
+        {/* SEARCH & FILTERS (Active on Opportunities tab) */}
+        {activeTab === 'opportunities' && (
           <OpportunityFilters
             activeTab={activeTab}
             searchQuery={searchQuery}
@@ -261,40 +314,41 @@ export default function UserDashboard() {
         {!loading && !error && activeTab === 'opportunities' && (
           <>
             {filteredOpportunities.length === 0 ? (
-              <div className="empty-state-box">
-                <h3>No opportunities found matching your criteria</h3>
-                <p>Try adjusting your search terms, work mode, or reset category filters.</p>
-                <button onClick={resetFilters} className="btn-reset-filters">Clear All Filters</button>
+              <div className="empty-state-box p-8 text-center bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm my-6">
+                {oppSubTab === 'recommended' ? (
+                  <>
+                    <div className="text-4xl mb-3">🎯</div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                      No recommended opportunities yet
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-5">
+                      To get personalized daily opportunity recommendations, please complete your profile with your current skills and location.
+                    </p>
+                    <Link
+                      to="/profile"
+                      className="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg shadow-sm transition-colors"
+                    >
+                      Complete Profile in Settings
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                      No opportunities found matching your criteria
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Try adjusting your search terms, work mode, or reset category filters.
+                    </p>
+                    <button onClick={resetFilters} className="btn-reset-filters">
+                      Clear All Filters
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <div className="discovery-grid">
                 {filteredOpportunities.map(opp => (
                   <OpportunityCard
-                    key={opp.id}
-                    opportunity={opp}
-                    isSaved={savedIdsSet.has(opp.id)}
-                    onSaveToggle={handleSaveToggle}
-                    onSelect={(selected) => setSelectedOpportunity(selected)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* CONTENT GRID: COLLABORATIONS TAB */}
-        {!loading && !error && activeTab === 'collaborations' && (
-          <>
-            {filteredOpportunities.length === 0 ? (
-              <div className="empty-state-box">
-                <h3>No student projects found</h3>
-                <p>Be the first student to post a project or clear your search filters.</p>
-                <button onClick={resetFilters} className="btn-reset-filters">Clear All Filters</button>
-              </div>
-            ) : (
-              <div className="discovery-grid">
-                {filteredOpportunities.map(opp => (
-                  <StudentCollabCard
                     key={opp.id}
                     opportunity={opp}
                     isSaved={savedIdsSet.has(opp.id)}
@@ -390,3 +444,4 @@ export default function UserDashboard() {
     </DashboardLayout>
   );
 }
+

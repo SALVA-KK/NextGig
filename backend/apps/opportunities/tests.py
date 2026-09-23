@@ -1251,3 +1251,191 @@ class ContactPrivacyAPITests(APITestCase):
         poster_data = response.data["poster"]
         self.assertEqual(poster_data["phone_number"], "+917777777777")
         self.assertEqual(poster_data["whatsapp_number"], "+917777777777")
+
+
+class RecommendationFeatureTests(APITestCase):
+    """
+    Test suite for student opportunity recommendations matching engine,
+    Celery Beat recommendation generation, and API permissions.
+    """
+
+    def setUp(self):
+        from apps.accounts.models import StudentProfile
+
+        # Provider poster
+        self.provider = User.objects.create_user(
+            email="rec_provider@example.com",
+            password="Password123!",
+            full_name="Rec Provider",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        # Target Student
+        self.student = User.objects.create_user(
+            email="rec_student@example.com",
+            password="Password123!",
+            full_name="Target Student",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        self.student_profile, _ = StudentProfile.objects.get_or_create(user=self.student)
+        self.student_profile.skills = ["Python", "React", "Docker"]
+        self.student_profile.city = "Kochi"
+        self.student_profile.save()
+
+        # Zero-match Student
+        self.zero_student = User.objects.create_user(
+            email="zero_student@example.com",
+            password="Password123!",
+            full_name="Zero Student",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        self.zero_profile, _ = StudentProfile.objects.get_or_create(user=self.zero_student)
+        self.zero_profile.skills = []
+        self.zero_profile.city = ""
+        self.zero_profile.save()
+
+        # Past application for category history matching
+        self.past_opp = Opportunity.objects.create(
+            poster=self.provider,
+            title="Past Internship",
+            category=Opportunity.Category.INTERNSHIP,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.STIPEND,
+            status=Opportunity.Status.OPEN,
+        )
+        Application.objects.create(applicant=self.student, opportunity=self.past_opp)
+
+        # 1. High match opportunity (Skills: Python, React; City: Kochi; Category: Internship)
+        # Score math: 2 skills overlap = +4, city match = +1, category history = +1 -> Total = 6
+        self.opp_high = Opportunity.objects.create(
+            poster=self.provider,
+            title="High Match Backend Lead",
+            description="Django React in Kochi",
+            category=Opportunity.Category.INTERNSHIP,
+            work_mode=Opportunity.WorkMode.HYBRID,
+            pay_type=Opportunity.PayType.HOURLY,
+            required_skills=["python", "react", "AWS"],
+            city="kochi",
+            status=Opportunity.Status.OPEN,
+        )
+
+        # 2. Skill-only match opportunity (Skills: Docker; City: Chennai; Category: Freelance)
+        # Score math: 1 skill overlap = +2 -> Total = 2
+        self.opp_skill = Opportunity.objects.create(
+            poster=self.provider,
+            title="Docker Freelance Gig",
+            description="DevOps setup",
+            category=Opportunity.Category.FREELANCE,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.MONTHLY,
+            required_skills=["docker", "Kubernetes"],
+            city="Chennai",
+            status=Opportunity.Status.OPEN,
+        )
+
+        # 3. Zero match opportunity (Skills: Java; City: Delhi; Category: Tutoring)
+        # Score math: 0 -> Total = 0
+        self.opp_zero = Opportunity.objects.create(
+            poster=self.provider,
+            title="Java Tutor Delhi",
+            description="Java tutoring",
+            category=Opportunity.Category.TUTORING,
+            work_mode=Opportunity.WorkMode.ONSITE,
+            pay_type=Opportunity.PayType.HOURLY,
+            required_skills=["Java", "Spring"],
+            city="Delhi",
+            status=Opportunity.Status.OPEN,
+        )
+
+        self.rec_endpoint = "/api/opportunities/recommended/"
+
+    def test_scoring_logic_and_zero_exclusion(self):
+        """
+        Verify daily recommendation task calculates exact score math:
+        - 2 overlapping skills = +4
+        - Same city = +1
+        - Application category history match = +1
+        - Score=0 items are strictly excluded.
+        """
+        from .models import RecommendedOpportunity
+        from .tasks import generate_daily_recommendations
+
+        created_count = generate_daily_recommendations()
+        self.assertGreater(created_count, 0)
+
+        # Check target student recommendations
+        recs = RecommendedOpportunity.objects.filter(student=self.student).order_by("-score")
+        self.assertEqual(recs.count(), 2)
+
+        high_rec = recs.get(opportunity=self.opp_high)
+        # 2 overlapping skills (Python, React) = 4, city match ("kochi" == "Kochi") = 1, category ("internship") = 1 -> Total = 6
+        self.assertEqual(high_rec.score, 6)
+
+        skill_rec = recs.get(opportunity=self.opp_skill)
+        # 1 overlapping skill (Docker) = 2 -> Total = 2
+        self.assertEqual(skill_rec.score, 2)
+
+        # Verify score 0 opp is excluded
+        self.assertFalse(RecommendedOpportunity.objects.filter(student=self.student, opportunity=self.opp_zero).exists())
+
+        # Verify zero student has 0 recommendations
+        self.assertEqual(RecommendedOpportunity.objects.filter(student=self.zero_student).count(), 0)
+
+    def test_single_notification_digest_per_student(self):
+        """
+        Task creates exactly ONE notification digest for student with >0 matches,
+        and ZERO notifications for student with 0 matches.
+        """
+        from apps.notifications.models import Notification
+        from .tasks import generate_daily_recommendations
+
+        generate_daily_recommendations()
+
+        student_notifs = Notification.objects.filter(
+            recipient=self.student,
+            notification_type=Notification.NotificationType.RECOMMENDATIONS_DIGEST
+        )
+        self.assertEqual(student_notifs.count(), 1)
+        self.assertIn("2 new opportunities matched to your profile today", student_notifs.first().message)
+
+        zero_notifs = Notification.objects.filter(
+            recipient=self.zero_student,
+            notification_type=Notification.NotificationType.RECOMMENDATIONS_DIGEST
+        )
+        self.assertEqual(zero_notifs.count(), 0)
+
+    def test_recommended_opportunities_list_endpoint_permissions(self):
+        """
+        GET /api/opportunities/recommended/ returns 200 for Student role,
+        and 403 Forbidden for Provider or Admin roles.
+        """
+        from .tasks import generate_daily_recommendations
+        generate_daily_recommendations()
+
+        # 1. Student access succeeds (200 OK)
+        self.client.force_authenticate(user=self.student)
+        res_student = self.client.get(self.rec_endpoint)
+        self.assertEqual(res_student.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_student.data["count"], 2)
+
+        # 2. Provider access denied (403 Forbidden)
+        self.client.force_authenticate(user=self.provider)
+        res_provider = self.client.get(self.rec_endpoint)
+        self.assertEqual(res_provider.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Admin access denied (403 Forbidden)
+        admin_user = User.objects.create_user(
+            email="rec_admin@example.com",
+            password="Password123!",
+            full_name="Rec Admin",
+            role=User.Role.ADMIN,
+            is_verified=True,
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=admin_user)
+        res_admin = self.client.get(self.rec_endpoint)
+        self.assertEqual(res_admin.status_code, status.HTTP_403_FORBIDDEN)
+

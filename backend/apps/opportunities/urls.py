@@ -10,6 +10,7 @@ from .views import (
     OpportunityListCreateView,
     OpportunitySaveView,
     ReceivedApplicationsListView,
+    RecommendedOpportunitiesListView,
     SavedOpportunityListView,
 )
 
@@ -17,6 +18,7 @@ app_name = "opportunities"
 
 urlpatterns = [
     path("", OpportunityListCreateView.as_view(), name="opportunity-list-create"),
+    path("recommended/", RecommendedOpportunitiesListView.as_view(), name="recommended-opportunities-list"),
     path("<int:pk>/", OpportunityDetailView.as_view(), name="opportunity-detail"),
     path("<int:pk>/save/", OpportunitySaveView.as_view(), name="opportunity-save"),
     path("<int:pk>/apply/", ApplicationCreateView.as_view(), name="opportunity-apply"),

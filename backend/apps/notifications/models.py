@@ -18,6 +18,7 @@ class Notification(models.Model):
         PROVIDER_WELCOME = "provider_welcome", _("Welcome Provider")
         PROVIDER_VERIFIED = "provider_verified", _("Provider Verified")
         PROVIDER_UNVERIFIED = "provider_unverified", _("Provider Unverified")
+        RECOMMENDATIONS_DIGEST = "recommendations_digest", _("Daily Recommendations Digest")
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,

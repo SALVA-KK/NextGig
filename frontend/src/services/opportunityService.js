@@ -32,6 +32,26 @@ export const opportunityService = {
     return response.data;
   },
 
+  /**
+   * Fetch recommended opportunities for current student
+   */
+  async getRecommendedOpportunities(params = {}) {
+    try {
+      const response = await api.get('/opportunities/recommended/', { params });
+      let data = response.data;
+      let results = Array.isArray(data) ? data : (data?.results || []);
+      return {
+        results,
+        count: data.count ?? results.length,
+        next: data.next || null,
+        previous: data.previous || null
+      };
+    } catch (error) {
+      console.error('Failed to fetch recommended opportunities from backend:', error);
+      return { results: [], count: 0, next: null, previous: null };
+    }
+  },
+
 
   /**
    * Toggle save/bookmark opportunity

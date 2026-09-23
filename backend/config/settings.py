@@ -264,11 +264,17 @@ CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {
     "max_retries": 2,
 }
 
+from celery.schedules import crontab
+
 # Celery Beat Periodic Task Schedule
 CELERY_BEAT_SCHEDULE = {
     "close-expired-opportunities-daily": {
         "task": "apps.opportunities.tasks.close_expired_opportunities",
         "schedule": 86400.0,  # Run once daily (every 24 hours)
+    },
+    "generate-daily-recommendations-6am": {
+        "task": "apps.opportunities.tasks.generate_daily_recommendations",
+        "schedule": crontab(hour=6, minute=0),
     },
 }
 
