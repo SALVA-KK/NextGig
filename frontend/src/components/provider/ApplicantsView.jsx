@@ -6,6 +6,28 @@ import PaginationControl from '../common/PaginationControl';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
 import EmptyState from '../common/EmptyState';
 
+function ApplicantAvatar({ src, name, size = 'w-12 h-12' }) {
+  const [imgError, setImgError] = useState(false);
+  const initial = (name || 'Applicant').charAt(0).toUpperCase();
+
+  return (
+    <div className={`${size} rounded-full overflow-hidden border-2 border-slate-200 bg-indigo-50 flex items-center justify-center flex-shrink-0 shadow-xs`}>
+      {src && !imgError ? (
+        <img
+          src={src}
+          alt={name}
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <span className="text-lg font-extrabold text-indigo-600">
+          {initial}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function ApplicantsView({ selectedOpportunity = null, onSelectOpportunity }) {
   const [opportunities, setOpportunities] = useState([]);
   const [activeOpp, setActiveOpp] = useState(selectedOpportunity || 'all');
@@ -219,13 +241,11 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div className="provider-avatar large" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {applicantObj.profile_picture ? (
-                        <img src={applicantObj.profile_picture} alt={applicantName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <span>{initial}</span>
-                      )}
-                    </div>
+                    <ApplicantAvatar
+                      src={applicantObj.profile_picture}
+                      name={applicantName}
+                      size="w-12 h-12"
+                    />
                     <div>
                       {app.opportunity?.title && (
                         <div

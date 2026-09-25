@@ -38,10 +38,14 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
   return (
     <>
       {/* Backdrop for Mobile Sidebar Drawer */}
-      {isOpen && <div className="sidebar-overlay" onClick={onClose}></div>}
+      {isOpen && <div className="sidebar-overlay fixed inset-0 bg-slate-900/50 z-30 md:hidden" onClick={onClose}></div>}
 
-      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div className="sidebar-top">
+      <aside
+        className={`sidebar fixed top-0 left-0 z-40 w-64 h-screen bg-white border-r border-slate-200 flex flex-col transition-transform duration-200 ease-in-out md:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="sidebar-top flex-1 flex flex-col min-h-0 overflow-y-auto">
           <div className="sidebar-brand-wrapper">
             <Link to={brandLink} className="sidebar-brand">
               <div className="brand-logo-sq">N</div>

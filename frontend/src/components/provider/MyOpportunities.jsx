@@ -55,7 +55,7 @@ export default function MyOpportunities({ onAddNew }) {
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: '700' }}>My Posted Opportunities</h2>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-            Overview of your active and past opportunity listings. Click Manage to view details, review applicants, edit, or update listing status.
+            Overview of your active and past opportunity listings. Click any card to view details, review applicants, edit, or update listing status.
           </p>
         </div>
         <button onClick={onAddNew} className="btn-primary-sm">
@@ -79,10 +79,7 @@ export default function MyOpportunities({ onAddNew }) {
       )}
 
       {opportunities.length === 0 ? (
-        <div
-          className="dashboard-stat-card"
-          style={{ textAlign: 'center', padding: '48px 24px', background: 'var(--bg-surface)' }}
-        >
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm text-center p-8 sm:p-12">
           <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>No Opportunities Posted Yet</h3>
           <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '20px' }}>
             You have not posted any opportunities yet. Create your first job or internship listing to start receiving applications.
@@ -92,42 +89,39 @@ export default function MyOpportunities({ onAddNew }) {
           </button>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="flex flex-col gap-2">
           {opportunities.map((opp) => (
             <div
               key={opp.id}
-              className="dashboard-stat-card"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '16px',
-                padding: '20px 24px',
-              }}
+              onClick={() => navigate(`/provider-dashboard/opportunities/${opp.id}`)}
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 cursor-pointer transition-colors active:bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
             >
-              <div style={{ flex: '1 1 300px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-main)' }}>{opp.title}</h3>
-                  <span className={`status-badge ${opp.status === 'open' ? 'enabled' : 'pending'}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                    {opp.title}
+                  </h3>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                      opp.status === 'open'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    }`}
+                  >
                     {opp.status?.toUpperCase()}
                   </span>
                 </div>
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                  <span><strong>Category:</strong> {opp.category?.replace('_', ' ')}</span>
-                  <span><strong>Posted:</strong> {new Date(opp.created_at).toLocaleDateString()}</span>
-                  <span><strong>Applicants:</strong> {opp.applicants_count ?? 0}</span>
+                <div className="text-xs font-medium text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                  <span>
+                    <strong className="text-slate-700">Category:</strong> {opp.category?.replace('_', ' ')}
+                  </span>
+                  <span>
+                    <strong className="text-slate-700">Posted:</strong> {new Date(opp.created_at).toLocaleDateString()}
+                  </span>
+                  <span>
+                    <strong className="text-slate-700">Applicants:</strong> {opp.applicants_count ?? 0}
+                  </span>
                 </div>
-              </div>
-
-              <div>
-                <button
-                  onClick={() => navigate(`/provider-dashboard/opportunities/${opp.id}`)}
-                  className="btn-primary-sm"
-                  style={{ minWidth: '100px' }}
-                >
-                  Manage
-                </button>
               </div>
             </div>
           ))}
