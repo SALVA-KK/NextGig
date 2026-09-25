@@ -87,6 +87,30 @@ export const adminService = {
   },
 
   /**
+   * Get platform dashboard summary metrics and recent actions
+   */
+  async getDashboardSummary() {
+    const response = await api.get('/admin/dashboard/summary/');
+    return response.data;
+  },
+
+  /**
+   * Get detailed info for a specific user (including opportunities or applications)
+   */
+  async getUserDetail(id) {
+    const response = await api.get(`/admin/users/${id}/detail/`);
+    return response.data;
+  },
+
+  /**
+   * Hard-delete a user account
+   */
+  async deleteUser(id) {
+    const response = await api.delete(`/admin/users/${id}/`);
+    return response.data;
+  },
+
+  /**
    * Get paginated audit logs of administrative actions
    */
   async getAuditLog(params = {}) {

@@ -7,7 +7,11 @@ import { authService } from '../../services/authService';
 
 export default function AdminDashboard() {
   const currentUser = authService.getCurrentUser();
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'providers' | 'users' | 'opportunities'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'providers' | 'users' | 'opportunities' | 'audit' | 'overview'
+
+  // Platform Dashboard Summary state
+  const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Provider Verification state
   const [pendingProviders, setPendingProviders] = useState([]);
@@ -23,6 +27,13 @@ export default function AdminDashboard() {
   const [usersTotalCount, setUsersTotalCount] = useState(0);
   const [userRoleFilter, setUserRoleFilter] = useState('');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  // User Detail Drilldown & Delete Modal state
+  const [selectedUserDetail, setSelectedUserDetail] = useState(null);
+  const [userDetailLoading, setUserDetailLoading] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [confirmEmailInput, setConfirmEmailInput] = useState('');
+  const [modalErrorMessage, setModalErrorMessage] = useState(null);
 
   // Opportunity Moderation state
   const [opportunities, setOpportunities] = useState([]);
@@ -45,6 +56,19 @@ export default function AdminDashboard() {
   // Common Feedback State
   const [bannerMessage, setBannerMessage] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Load Dashboard Summary
+  const loadDashboardSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const data = await adminService.getDashboardSummary();
+      setDashboardSummary(data);
+    } catch (err) {
+      console.error('Error loading dashboard summary:', err);
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   // Load Pending Providers
   const loadPendingProviders = async () => {
@@ -111,7 +135,9 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (activeTab === 'overview') {
+    if (activeTab === 'dashboard') {
+      loadDashboardSummary();
+    } else if (activeTab === 'overview') {
       authService.getAdminMFAStatus()
         .then((res) => setMfaEnabled(Boolean(res?.is_enabled)))
         .catch((err) => console.error('Error loading MFA status:', err));
@@ -170,17 +196,43 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleViewUserDetail = async (user) => {
+    setUserDetailLoading(true);
+    setModalErrorMessage(null);
+    try {
+      const detail = await adminService.getUserDetail(user.id);
+      setSelectedUserDetail(detail);
+    } catch (err) {
+      console.error('Error fetching user detail:', err);
+      setBannerMessage({ type: 'error', text: 'Failed to fetch user details.' });
+    } finally {
+      setUserDetailLoading(false);
+    }
+  };
+
   const handleForceCloseOpp = async (opp) => {
+    const oppId = typeof opp === 'object' ? opp.id : opp;
+    const oppTitle = typeof opp === 'object' && opp.title ? opp.title : `Opportunity #${oppId}`;
     setActionLoading(true);
     try {
-      await adminService.forceCloseOpportunity(opp.id);
+      await adminService.forceCloseOpportunity(oppId);
       setBannerMessage({
         type: 'success',
-        text: `Opportunity "${opp.title}" has been force-closed.`,
+        text: `Opportunity "${oppTitle}" has been force-closed.`,
       });
       setOpportunities((prev) =>
-        prev.map((o) => (o.id === opp.id ? { ...o, status: 'closed' } : o))
+        prev.map((o) => (o.id === oppId ? { ...o, status: 'closed' } : o))
       );
+      if (selectedUserDetail) {
+        setSelectedUserDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                opportunities: prev.opportunities?.map((o) => (o.id === oppId ? { ...o, status: 'closed' } : o)),
+              }
+            : null
+        );
+      }
     } catch (err) {
       console.error('Error force-closing opportunity:', err);
       setBannerMessage({ type: 'error', text: 'Failed to force-close opportunity.' });
@@ -188,6 +240,31 @@ export default function AdminDashboard() {
       setActionLoading(false);
     }
   };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!selectedUserDetail) return;
+    setActionLoading(true);
+    setModalErrorMessage(null);
+    try {
+      await adminService.deleteUser(selectedUserDetail.id);
+      setBannerMessage({
+        type: 'success',
+        text: `User account for ${selectedUserDetail.email} permanently deleted.`,
+      });
+      setShowDeleteConfirmModal(false);
+      setSelectedUserDetail(null);
+      setConfirmEmailInput('');
+      await loadUsers();
+    } catch (err) {
+      console.error('Error deleting user:', err);
+      const msg = err.response?.data?.detail || 'Failed to delete user account.';
+      setModalErrorMessage(msg);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+
 
   const handleReopenOpp = async (opp) => {
     setActionLoading(true);
@@ -236,7 +313,7 @@ export default function AdminDashboard() {
           <div className="hero-badge">ADMIN CONTROL PANEL</div>
           <h2 style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px' }}>System Oversight & Moderation</h2>
           <p className="subtitle">
-            Manage provider organization verifications, user accounts, and platform opportunity listings.
+            Platform metrics, provider verifications, user management, and moderation controls.
           </p>
         </div>
 
@@ -266,7 +343,149 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* TAB 0: PLATFORM DASHBOARD SUMMARY */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            {summaryLoading ? (
+              <div className="discovery-loading">Loading platform dashboard summary...</div>
+            ) : dashboardSummary ? (
+              <>
+                {/* Metric Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Students Metric Card */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Students</span>
+                    <div className="text-2xl font-extrabold text-slate-900 mt-1">{dashboardSummary.total_students}</div>
+                    <div className="flex gap-2 text-xs font-medium text-slate-500 mt-2">
+                      <span className="text-emerald-600 font-semibold">{dashboardSummary.active_students} Active</span>
+                      <span>•</span>
+                      <span className="text-amber-600">{dashboardSummary.inactive_students} Inactive</span>
+                    </div>
+                  </div>
 
+                  {/* Providers Metric Card */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Providers</span>
+                    <div className="text-2xl font-extrabold text-slate-900 mt-1">{dashboardSummary.total_providers}</div>
+                    <div className="flex gap-2 text-xs font-medium text-slate-500 mt-2">
+                      <span className="text-emerald-600 font-semibold">{dashboardSummary.active_providers} Active</span>
+                      <span>•</span>
+                      <span className="text-amber-600">{dashboardSummary.inactive_providers} Inactive</span>
+                    </div>
+                  </div>
+
+                  {/* Opportunities Metric Card */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Opportunities</span>
+                    <div className="text-2xl font-extrabold text-slate-900 mt-1">
+                      {dashboardSummary.total_opportunities_open + dashboardSummary.total_opportunities_closed}
+                    </div>
+                    <div className="flex gap-2 text-xs font-medium text-slate-500 mt-2">
+                      <span className="text-indigo-600 font-semibold">{dashboardSummary.total_opportunities_open} Open</span>
+                      <span>•</span>
+                      <span className="text-slate-500">{dashboardSummary.total_opportunities_closed} Closed</span>
+                    </div>
+                  </div>
+
+                  {/* Applications Metric Card */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Applications</span>
+                    <div className="text-2xl font-extrabold text-slate-900 mt-1">{dashboardSummary.total_applications}</div>
+                    <div className="text-xs font-semibold text-emerald-600 mt-2">
+                      +{dashboardSummary.applications_this_week} this week
+                    </div>
+                  </div>
+                </div>
+
+                {/* Secondary Row: Verifications & Signups */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex justify-between items-center">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Pending Provider Verifications</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{dashboardSummary.pending_provider_verifications_count}</div>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('providers')}
+                      className="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                    >
+                      Review →
+                    </button>
+                  </div>
+
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex justify-between items-center">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">New Providers (Last 7 Days)</div>
+                      <div className="text-xl font-bold text-slate-900 mt-1">{dashboardSummary.new_provider_signups_last_7_days_count}</div>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                      Recent Signups
+                    </span>
+                  </div>
+                </div>
+
+                {/* Categories Breakdown */}
+                {dashboardSummary.opportunities_by_category && (
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Opportunities by Category</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(dashboardSummary.opportunities_by_category).map(([cat, count]) => (
+                        <span key={cat} className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-medium">
+                          <strong className="text-slate-900">{cat.replace('_', ' ')}:</strong> {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Administrative Actions Table */}
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Recent Administrative Actions</h4>
+                    <button
+                      onClick={() => setActiveTab('audit')}
+                      className="text-xs font-bold text-indigo-600 hover:text-indigo-700"
+                    >
+                      View Full Audit Trail →
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
+                          <th className="py-2.5 px-3">Time</th>
+                          <th className="py-2.5 px-3">Admin</th>
+                          <th className="py-2.5 px-3">Action</th>
+                          <th className="py-2.5 px-3">Target</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {dashboardSummary.recent_admin_actions?.length === 0 ? (
+                          <tr>
+                            <td colSpan="4" className="py-4 text-center text-slate-500">No recent actions recorded.</td>
+                          </tr>
+                        ) : (
+                          dashboardSummary.recent_admin_actions?.map((log) => (
+                            <tr key={log.id} className="hover:bg-slate-50/50">
+                              <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                              <td className="py-2.5 px-3 font-semibold text-slate-800">{log.admin_email}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="px-2 py-0.5 rounded-full font-bold uppercase text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  {log.action_type_display || log.action_type}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{log.target_description}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
 
         {/* TAB 1: OVERVIEW & STATUS */}
         {activeTab === 'overview' && (
@@ -488,26 +707,46 @@ export default function AdminDashboard() {
                             {new Date(u.date_joined).toLocaleDateString()}
                           </td>
                           <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                            {isSelf ? (
-                              <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Current User</span>
-                            ) : (
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
                               <button
-                                onClick={() => handleToggleUserActive(u)}
-                                disabled={actionLoading}
-                                className="btn-secondary-link"
+                                onClick={() => handleViewUserDetail(u)}
+                                disabled={userDetailLoading}
                                 style={{
                                   padding: '6px 12px',
                                   borderRadius: '6px',
-                                  border: `1px solid ${u.is_active ? '#fecaca' : '#a7f3d0'}`,
-                                  color: u.is_active ? '#b91c1c' : '#047857',
-                                  backgroundColor: u.is_active ? '#fef2f2' : '#ecfdf5',
-                                  cursor: 'pointer',
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor: '#f8fafc',
+                                  color: '#334155',
                                   fontWeight: '600',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
                                 }}
                               >
-                                {u.is_active ? 'Deactivate' : 'Activate'}
+                                View
                               </button>
-                            )}
+
+                              {isSelf ? (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Current User</span>
+                              ) : (
+                                <button
+                                  onClick={() => handleToggleUserActive(u)}
+                                  disabled={actionLoading}
+                                  className="btn-secondary-link"
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${u.is_active ? '#fecaca' : '#a7f3d0'}`,
+                                    color: u.is_active ? '#b91c1c' : '#047857',
+                                    backgroundColor: u.is_active ? '#fef2f2' : '#ecfdf5',
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  {u.is_active ? 'Deactivate' : 'Activate'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -744,6 +983,312 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* USER DETAIL MODAL */}
+        {selectedUserDetail && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(15, 23, 42, 0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+              padding: '16px',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderRadius: '16px',
+                padding: '24px',
+                maxWidth: '640px',
+                width: '100%',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxShadow: 'var(--shadow-modal)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                <div>
+                  <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-main)' }}>
+                    {selectedUserDetail.full_name || 'User Profile'}
+                  </h3>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedUserDetail.email}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span className="status-badge" style={{ textTransform: 'uppercase' }}>{selectedUserDetail.role}</span>
+                  <span className={`status-badge ${selectedUserDetail.is_active ? 'enabled' : 'pending'}`}>
+                    {selectedUserDetail.is_active ? 'ACTIVE' : 'INACTIVE'}
+                  </span>
+                  <button
+                    onClick={() => setSelectedUserDetail(null)}
+                    style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted)' }}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              {/* Profile Overview Card */}
+              <div style={{ backgroundColor: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: '12px', marginBottom: '20px', fontSize: '13px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                  <div><strong>User ID:</strong> #{selectedUserDetail.id}</div>
+                  <div><strong>Date Joined:</strong> {new Date(selectedUserDetail.date_joined).toLocaleDateString()}</div>
+                  <div>
+                    <strong>Phone Number:</strong>{' '}
+                    {selectedUserDetail.phone_number ? (
+                      <span style={{ color: '#047857', fontWeight: '600' }}>{selectedUserDetail.phone_number}</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided or opted out</span>
+                    )}
+                  </div>
+                  <div>
+                    <strong>WhatsApp Number:</strong>{' '}
+                    {selectedUserDetail.whatsapp_number ? (
+                      <span style={{ color: '#047857', fontWeight: '600' }}>{selectedUserDetail.whatsapp_number}</span>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Not provided or opted out</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Provider Opportunities List */}
+              {selectedUserDetail.role === 'provider' && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '12px' }}>
+                    Posted Opportunities ({selectedUserDetail.opportunities?.length || 0})
+                  </h4>
+                  {selectedUserDetail.opportunities?.length === 0 ? (
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No opportunities posted yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {selectedUserDetail.opportunities.map((opp) => (
+                        <div
+                          key={opp.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-color)',
+                            backgroundColor: 'var(--bg-surface)',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '14px' }}>{opp.title}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                              Status: <strong style={{ textTransform: 'uppercase' }}>{opp.status}</strong> • {opp.applicants_count} Applicants
+                            </div>
+                          </div>
+                          {opp.status !== 'closed' && (
+                            <button
+                              onClick={() => handleForceCloseOpp(opp)}
+                              disabled={actionLoading}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: '#fef2f2',
+                                color: '#b91c1c',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Force Close
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Student Applications List (View-Only) */}
+              {selectedUserDetail.role === 'student' && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '12px' }}>
+                    Submitted Applications ({selectedUserDetail.applications?.length || 0})
+                  </h4>
+                  {selectedUserDetail.applications?.length === 0 ? (
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No applications submitted yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {selectedUserDetail.applications.map((app) => (
+                        <div
+                          key={app.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-color)',
+                            backgroundColor: 'var(--bg-surface)',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '14px' }}>{app.opportunity_title}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                              Applied: {new Date(app.applied_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <span className="status-badge" style={{ textTransform: 'uppercase', fontSize: '11px' }}>
+                            {app.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Modal Footer Actions */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirmModal(true);
+                    setConfirmEmailInput('');
+                    setModalErrorMessage(null);
+                  }}
+                  style={{
+                    backgroundColor: '#dc2626',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Delete Account
+                </button>
+
+                <button
+                  onClick={() => setSelectedUserDetail(null)}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    backgroundColor: 'var(--bg-surface)',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DELETE ACCOUNT CONFIRMATION MODAL */}
+        {showDeleteConfirmModal && selectedUserDetail && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(15, 23, 42, 0.75)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1100,
+              padding: '16px',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderRadius: '16px',
+                padding: '28px',
+                maxWidth: '460px',
+                width: '100%',
+                boxShadow: 'var(--shadow-modal)',
+              }}
+            >
+              <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#b91c1c', marginBottom: '12px' }}>
+                Permanently Delete User Account?
+              </h3>
+              
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.5' }}>
+                This action will <strong>permanently delete</strong> the account for{' '}
+                <strong style={{ color: 'var(--text-main)' }}>{selectedUserDetail.email}</strong> and cascade delete all associated profile data, listings, and records. This action <strong>CANNOT BE UNDONE</strong>.
+              </p>
+
+              {modalErrorMessage && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '13px', marginBottom: '16px' }}>
+                  {modalErrorMessage}
+                </div>
+              )}
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  To confirm, type <strong>{selectedUserDetail.email}</strong> below:
+                </label>
+                <input
+                  type="text"
+                  value={confirmEmailInput}
+                  onChange={(e) => setConfirmEmailInput(e.target.value)}
+                  placeholder="Enter email to confirm..."
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button
+                  onClick={() => setShowDeleteConfirmModal(false)}
+                  disabled={actionLoading}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    backgroundColor: 'var(--bg-surface)',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDeleteUser}
+                  disabled={actionLoading || confirmEmailInput.trim() !== selectedUserDetail.email}
+                  style={{
+                    backgroundColor: confirmEmailInput.trim() === selectedUserDetail.email ? '#dc2626' : '#fca5a5',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontWeight: '700',
+                    fontSize: '13px',
+                    cursor: confirmEmailInput.trim() === selectedUserDetail.email ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  {actionLoading ? 'Deleting Account...' : 'Delete User Account'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* VERIFY PROVIDER MODAL */}
         {selectedProviderToVerify && (
           <div
@@ -870,3 +1415,4 @@ export default function AdminDashboard() {
     </DashboardLayout>
   );
 }
+

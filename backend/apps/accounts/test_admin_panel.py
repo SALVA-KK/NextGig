@@ -287,14 +287,116 @@ class AdminPanelAPITests(TestCase):
 
     def test_admin_write_endpoint_throttling_scope(self):
         """Confirm throttle_scope='admin_write' is configured on admin write endpoints."""
-        from apps.accounts.admin_views import AdminVerifyProviderView, AdminToggleUserActiveView
+        from apps.accounts.admin_views import AdminVerifyProviderView, AdminToggleUserActiveView, AdminDeleteUserView
         from apps.opportunities.admin_views import AdminForceCloseOpportunityView, AdminDeleteOpportunityView
 
         for view_cls in [
             AdminVerifyProviderView,
             AdminToggleUserActiveView,
+            AdminDeleteUserView,
             AdminForceCloseOpportunityView,
             AdminDeleteOpportunityView,
         ]:
             self.assertEqual(getattr(view_cls, "throttle_scope", None), "admin_write")
+
+    # -------------------------------------------------------------------------
+    # 6. User Detail & Hard Account Deletion Tests
+    # -------------------------------------------------------------------------
+    def test_admin_user_detail_view_privacy_and_role_items(self):
+        """Admin can retrieve user detail; contact numbers respect privacy toggles."""
+        self.client.force_authenticate(user=self.admin)
+
+        # 1. Provider User Detail (has 1 opportunity)
+        res_provider = self.client.get(f"/api/admin/users/{self.provider_user.id}/detail/")
+        self.assertEqual(res_provider.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_provider.data["email"], "provider_test@example.com")
+        self.assertEqual(len(res_provider.data["opportunities"]), 1)
+        self.assertEqual(res_provider.data["opportunities"][0]["title"], "Sample Admin Moderation Job")
+
+        # 2. Student User Detail (opted out of phone/whatsapp -> returns None)
+        res_student = self.client.get(f"/api/admin/users/{self.student_user.id}/detail/")
+        self.assertEqual(res_student.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res_student.data["phone_number"])
+        self.assertIsNone(res_student.data["whatsapp_number"])
+
+    def test_admin_delete_user_self_delete_block(self):
+        """Admin cannot delete their own account (returns 403 Forbidden)."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f"/api/admin/users/{self.admin.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("You cannot delete your own admin account.", response.data.get("detail", ""))
+
+    def test_admin_delete_user_other_admin_hard_block_unconditional(self):
+        """
+        Confirm deleting another admin account is an ABSOLUTE hard block (403 Forbidden),
+        unconditionally blocking both non-superuser admins AND superusers.
+        """
+        other_admin = CustomUser.objects.create_user(
+            email="other_admin@example.com",
+            password="Password123!",
+            full_name="Target Admin",
+            role=CustomUser.Role.ADMIN,
+            is_verified=True,
+        )
+        url = f"/api/admin/users/{other_admin.id}/"
+
+        # 1. Non-superuser admin attempt -> 403 Forbidden
+        self.client.force_authenticate(user=self.admin)
+        res1 = self.client.delete(url)
+        self.assertEqual(res1.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Cannot delete another admin account.", res1.data.get("detail", ""))
+
+        # 2. Superuser admin attempt -> ALSO 403 Forbidden (UNCONDITIONAL HARD BLOCK)
+        superuser = CustomUser.objects.create_superuser(
+            email="super_admin_del@example.com",
+            password="Password123!",
+            full_name="Super Admin Del",
+            role=CustomUser.Role.ADMIN,
+            is_verified=True,
+        )
+        self.client.force_authenticate(user=superuser)
+        res2 = self.client.delete(url)
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Cannot delete another admin account.", res2.data.get("detail", ""))
+
+        # Verify target admin still exists in database
+        self.assertTrue(CustomUser.objects.filter(id=other_admin.id).exists())
+
+    def test_admin_successful_user_hard_delete_and_audit_log_survival(self):
+        """Hard-deleting a provider deletes user/profile/opportunities and preserves audit log."""
+        self.client.force_authenticate(user=self.admin)
+        url = f"/api/admin/users/{self.provider_user.id}/"
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify user, profile, and opportunity are deleted via CASCADE
+        self.assertFalse(CustomUser.objects.filter(id=self.provider_user.id).exists())
+        self.assertFalse(ProviderProfile.objects.filter(id=self.provider_profile.id).exists())
+        self.assertFalse(Opportunity.objects.filter(id=self.opportunity.id).exists())
+
+        # Verify audit log SURVIVES deletion
+        log = AdminActionLog.objects.filter(action_type=AdminActionLog.ActionType.USER_DELETED).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.admin, self.admin)
+        self.assertIn("provider_test@example.com", log.target_description)
+
+    # -------------------------------------------------------------------------
+    # 7. Dashboard Summary Tests
+    # -------------------------------------------------------------------------
+    def test_admin_dashboard_summary_metrics(self):
+        """Admin can fetch platform summary metrics."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get("/api/admin/dashboard/summary/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.data
+        self.assertIn("total_students", data)
+        self.assertIn("total_providers", data)
+        self.assertIn("total_opportunities_open", data)
+        self.assertIn("total_applications", data)
+        self.assertIn("pending_provider_verifications_count", data)
+        self.assertIn("recent_admin_actions", data)
+        self.assertEqual(data["total_students"], 1)
+        self.assertEqual(data["total_providers"], 1)
 

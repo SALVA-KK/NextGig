@@ -816,6 +816,90 @@ class AdminUserListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AdminUserDetailSerializer(serializers.ModelSerializer):
+    """
+    Serializer for detailed admin inspection of a user account.
+    Nests posted opportunities (for providers) or submitted applications (for students).
+    Enforces privacy toggles (show_phone, show_whatsapp) so admins see null when opted out.
+    """
+
+    phone_number = serializers.SerializerMethodField()
+    whatsapp_number = serializers.SerializerMethodField()
+    opportunities = serializers.SerializerMethodField()
+    applications = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = (
+            "id",
+            "email",
+            "full_name",
+            "role",
+            "is_active",
+            "is_verified",
+            "date_joined",
+            "phone_number",
+            "whatsapp_number",
+            "opportunities",
+            "applications",
+        )
+        read_only_fields = fields
+
+    def get_profile(self, user):
+        if user.role == "provider":
+            return getattr(user, "provider_profile", None)
+        elif user.role == "student":
+            return getattr(user, "student_profile", None)
+        return None
+
+    def get_phone_number(self, user):
+        profile = self.get_profile(user)
+        if profile and getattr(profile, "show_phone", False):
+            if hasattr(profile, "phone_number") and profile.phone_number:
+                return profile.phone_number
+            return getattr(user, "phone_number", None)
+        return None
+
+    def get_whatsapp_number(self, user):
+        profile = self.get_profile(user)
+        if profile and getattr(profile, "show_whatsapp", False):
+            return getattr(profile, "whatsapp_number", None)
+        return None
+
+    def get_opportunities(self, user):
+        if user.role == "provider":
+            from apps.opportunities.models import Opportunity
+            opps = Opportunity.objects.filter(poster=user).order_by("-created_at")
+            return [
+                {
+                    "id": opp.id,
+                    "title": opp.title,
+                    "status": opp.status,
+                    "category": opp.category,
+                    "created_at": opp.created_at,
+                    "applicants_count": opp.applications.count(),
+                }
+                for opp in opps
+            ]
+        return []
+
+    def get_applications(self, user):
+        if user.role == "student":
+            from apps.opportunities.models import Application
+            apps = Application.objects.filter(applicant=user).select_related("opportunity").order_by("-applied_at")
+            return [
+                {
+                    "id": app.id,
+                    "opportunity_id": app.opportunity_id,
+                    "opportunity_title": app.opportunity.title if app.opportunity else "",
+                    "status": app.status,
+                    "applied_at": app.applied_at,
+                }
+                for app in apps
+            ]
+        return []
+
+
 class AdminAuditLogSerializer(serializers.ModelSerializer):
     """
     Serializer for listing administrative audit log records.
