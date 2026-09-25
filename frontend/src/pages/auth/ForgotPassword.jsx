@@ -77,10 +77,10 @@ export default function ForgotPassword() {
         </button>
       </form>
 
-      <div className="auth-footer">
+      <div className="auth-footer text-slate-600">
         <p>
           Remembered your password?{' '}
-          <Link to="/login" className="link-primary">
+          <Link to="/login" className="text-indigo-600 underline hover:text-indigo-700 font-medium">
             Back to Login
           </Link>
         </p>
@@ -88,3 +88,4 @@ export default function ForgotPassword() {
     </AuthLayout>
   );
 }
+

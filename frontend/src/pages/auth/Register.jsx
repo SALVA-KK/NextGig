@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
+import PasswordInput from '../../components/common/PasswordInput';
 import { authService } from '../../services/authService';
 import { GoogleLogin } from '@react-oauth/google';
 import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
@@ -48,7 +49,6 @@ export default function Register() {
       navigate('/dashboard', { replace: true });
     }
   };
-
 
   const handleGoogleSuccess = async (credentialResponse) => {
     if (!credentialResponse?.credential) return;
@@ -223,9 +223,8 @@ export default function Register() {
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -239,9 +238,8 @@ export default function Register() {
 
           <div className="form-group">
             <label htmlFor="confirmPassword">Confirm Password</label>
-            <input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               placeholder="••••••••"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -257,12 +255,13 @@ export default function Register() {
       )}
 
       {/* Footer Link to Login */}
-      <div className="auth-footer">
+      <div className="auth-footer text-slate-600">
         Already have an account?{' '}
-        <Link to="/login" className="link-primary">
+        <Link to="/login" className="text-indigo-600 underline hover:text-indigo-700 font-medium">
           Sign in
         </Link>
       </div>
     </AuthLayout>
   );
 }
+

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
+import PasswordInput from '../../components/common/PasswordInput';
 import { authService } from '../../services/authService';
 
 export default function ResetPassword() {
@@ -61,7 +62,7 @@ export default function ResetPassword() {
           <div className="alert-banner alert-error" style={{ marginBottom: '20px' }}>
             Invalid or missing password reset link. Please request a new link below.
           </div>
-          <Link to="/forgot-password" className="link-primary">
+          <Link to="/forgot-password" className="text-indigo-600 underline hover:text-indigo-700 font-medium">
             Request a new password reset link
           </Link>
         </div>
@@ -89,10 +90,8 @@ export default function ResetPassword() {
           <form onSubmit={handleSubmit} className="auth-form">
             <div className="form-group">
               <label htmlFor="new_password">New Password</label>
-              <input
+              <PasswordInput
                 id="new_password"
-                type="password"
-                className="form-input"
                 placeholder="Enter new password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
@@ -103,10 +102,8 @@ export default function ResetPassword() {
 
             <div className="form-group">
               <label htmlFor="confirm_password">Confirm New Password</label>
-              <input
+              <PasswordInput
                 id="confirm_password"
-                type="password"
-                className="form-input"
                 placeholder="Confirm new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -120,10 +117,10 @@ export default function ResetPassword() {
             </button>
           </form>
 
-          <div className="auth-footer">
+          <div className="auth-footer text-slate-600">
             <p>
               Remembered your password?{' '}
-              <Link to="/login" className="link-primary">
+              <Link to="/login" className="text-indigo-600 underline hover:text-indigo-700 font-medium">
                 Back to Login
               </Link>
             </p>
@@ -133,3 +130,4 @@ export default function ResetPassword() {
     </AuthLayout>
   );
 }
+

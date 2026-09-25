@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BellOff } from 'lucide-react';
 import { notificationService } from '../../services/notificationService';
+import EmptyState from '../common/EmptyState';
 
 export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -165,8 +167,14 @@ export default function NotificationBell() {
             {loading ? (
               <div className="notification-loading">Loading notifications...</div>
             ) : notifications.length === 0 ? (
-              <div className="notification-empty">No notifications yet.</div>
+              <EmptyState
+                icon={BellOff}
+                title="You're all caught up"
+                subtitle="No new notifications"
+                className="py-6 px-4 bg-transparent border-0 shadow-none"
+              />
             ) : (
+
               notifications.map((item) => (
                 <div
                   key={item.id}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../components/auth/AuthLayout';
+import PasswordInput from '../../components/common/PasswordInput';
 import { authService } from '../../services/authService';
 import { auth } from '../../firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
@@ -86,8 +87,6 @@ export default function Login() {
     }
   };
 
-
-
   // Google OAuth Login Handler
   const handleGoogleSuccess = async (credentialResponse) => {
     if (!credentialResponse?.credential) return;
@@ -163,8 +162,7 @@ export default function Login() {
         type: 'error',
         text: err.message || 'Login failed. Please check your credentials.',
       });
-    }
- finally {
+    } finally {
       setLoading(false);
     }
   };
@@ -339,14 +337,13 @@ export default function Login() {
           <div className="form-group">
             <div className="form-label-row">
               <label htmlFor="password">Password</label>
-              <Link to="/forgot-password" className="link-secondary">
+              <Link to="/forgot-password" className="text-indigo-600 underline hover:text-indigo-700 font-medium text-xs">
                 Forgot password?
               </Link>
             </div>
-            <input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               placeholder="••••••••"
               autoComplete="current-password"
               value={password}
@@ -398,7 +395,7 @@ export default function Login() {
                     type="button"
                     onClick={handleResetPhone}
                     disabled={phoneLoading}
-                    className="link-secondary"
+                    className="text-indigo-600 underline hover:text-indigo-700 font-medium text-xs"
                   >
                     Change Phone
                   </button>
@@ -447,12 +444,13 @@ export default function Login() {
       )}
 
       {/* Footer Link to Registration */}
-      <div className="auth-footer">
+      <div className="auth-footer text-slate-600">
         Don't have an account?{' '}
-        <Link to="/register" className="link-primary">
-          Create one now
+        <Link to="/register" className="text-indigo-600 underline hover:text-indigo-700 font-medium">
+          Sign up
         </Link>
       </div>
     </AuthLayout>
   );
 }
+

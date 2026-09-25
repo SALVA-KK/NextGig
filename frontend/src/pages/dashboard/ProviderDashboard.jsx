@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Bookmark } from 'lucide-react';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import MyOpportunities from '../../components/provider/MyOpportunities';
 import PostOpportunity from '../../components/provider/PostOpportunity';
@@ -9,6 +10,7 @@ import OpportunityFilters from '../../components/opportunities/OpportunityFilter
 import OpportunityCard from '../../components/opportunities/OpportunityCard';
 import StudentCollabCard from '../../components/opportunities/StudentCollabCard';
 import PaginationControl from '../../components/common/PaginationControl';
+import EmptyState from '../../components/common/EmptyState';
 import { opportunityService } from '../../services/opportunityService';
 
 export default function ProviderDashboard() {
@@ -366,13 +368,13 @@ export default function ProviderDashboard() {
               {!savedLoading && !savedError && (
                 <>
                   {savedItems.length === 0 ? (
-                    <div className="empty-state-box">
-                      <h3>No saved opportunities yet</h3>
-                      <p>Explore opportunities and click the bookmark icon to save them for later.</p>
-                      <button onClick={() => setActiveTab('explore')} className="btn-reset-filters">
-                        Explore Opportunities
-                      </button>
-                    </div>
+                    <EmptyState
+                      icon={Bookmark}
+                      title="No saved opportunities yet"
+                      subtitle="Browse and save some!"
+                      actionLabel="Explore Opportunities"
+                      onAction={() => setActiveTab('explore')}
+                    />
                   ) : (
                     <div className="discovery-grid">
                       {savedItems.map((item) => {
@@ -414,3 +416,4 @@ export default function ProviderDashboard() {
     </DashboardLayout>
   );
 }
+

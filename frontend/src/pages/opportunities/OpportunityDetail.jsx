@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import SocialLinksDisplay from '../../components/common/SocialLinksDisplay';
 import { opportunityService } from '../../services/opportunityService';
@@ -109,6 +110,7 @@ export default function OpportunityDetail() {
       const appData = await opportunityService.applyToOpportunity(id, coverNote);
       setExistingApplication(appData);
       setApplySuccess(true);
+      toast.success("Application submitted successfully");
     } catch (err) {
       console.error('Apply error:', err);
       const errMsg = err?.response?.data?.detail || err?.response?.data?.error || err?.message || 'Failed to submit application. Please try again.';
@@ -117,6 +119,7 @@ export default function OpportunityDetail() {
       setSubmitting(false);
     }
   };
+
 
   // Handle Save Toggle
   const handleSaveToggle = async () => {

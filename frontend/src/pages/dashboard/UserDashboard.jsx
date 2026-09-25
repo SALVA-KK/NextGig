@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
+import { Bookmark, FileText } from 'lucide-react';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import OpportunityFilters from '../../components/opportunities/OpportunityFilters';
 import OpportunityCard from '../../components/opportunities/OpportunityCard';
 import StudentCollabCard from '../../components/opportunities/StudentCollabCard';
 import PaginationControl from '../../components/common/PaginationControl';
+import EmptyState from '../../components/common/EmptyState';
 import { opportunityService } from '../../services/opportunityService';
 
 export default function UserDashboard() {
@@ -138,6 +141,7 @@ export default function UserDashboard() {
   // Application submission handler
   const handleApplySubmit = async (oppId, coverNote) => {
     await opportunityService.applyToOpportunity(oppId, coverNote);
+    toast.success("Application submitted successfully");
     const updatedApps = await opportunityService.getMyApplications();
     setApplications(updatedApps);
   };
@@ -187,8 +191,6 @@ export default function UserDashboard() {
             Discover flexible part-time gigs, internships, freelance projects, or team up with fellow student creators for hackathons and technical projects.
           </p>
         </section>
-
-
 
         {/* SUB-TABS ON OPPORTUNITIES PAGE (All / Recommended / Collaborations) */}
         {activeTab === 'opportunities' && (
@@ -335,13 +337,13 @@ export default function UserDashboard() {
         {!loading && !error && activeTab === 'saved' && (
           <>
             {savedItems.length === 0 ? (
-              <div className="empty-state-box">
-                <h3>No saved opportunities yet</h3>
-                <p>Click the bookmark icon on any opportunity or project card to save it for later.</p>
-                <button onClick={() => setActiveTab('opportunities')} className="btn-reset-filters">
-                  Explore Opportunities
-                </button>
-              </div>
+              <EmptyState
+                icon={Bookmark}
+                title="No saved opportunities yet"
+                subtitle="Browse and save some!"
+                actionLabel="Explore Opportunities"
+                onAction={() => setActiveTab('opportunities')}
+              />
             ) : (
               <div className="discovery-grid">
                 {savedItems.map(item => {
@@ -365,13 +367,13 @@ export default function UserDashboard() {
         {!loading && !error && activeTab === 'applications' && (
           <>
             {applications.length === 0 ? (
-              <div className="empty-state-box">
-                <h3>No applications submitted yet</h3>
-                <p>Browse available opportunities and click "View Details" to submit your application.</p>
-                <button onClick={() => setActiveTab('opportunities')} className="btn-reset-filters">
-                  Explore Opportunities
-                </button>
-              </div>
+              <EmptyState
+                icon={FileText}
+                title="You haven't applied to anything yet"
+                subtitle="Explore opportunities"
+                actionLabel="Explore Opportunities"
+                onAction={() => setActiveTab('opportunities')}
+              />
             ) : (
               <div className="discovery-grid">
                 {applications.map(app => {
@@ -414,4 +416,5 @@ export default function UserDashboard() {
     </DashboardLayout>
   );
 }
+
 

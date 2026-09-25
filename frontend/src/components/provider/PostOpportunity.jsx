@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { opportunityService } from '../../services/opportunityService';
 
 export default function PostOpportunity({ initialData = null, onSuccess }) {
@@ -69,6 +70,7 @@ export default function PostOpportunity({ initialData = null, onSuccess }) {
         setMessage({ type: 'success', text: 'Opportunity updated successfully!' });
       } else {
         await opportunityService.createOpportunity(payload);
+        toast.success("Opportunity posted successfully");
         setMessage({ type: 'success', text: 'New opportunity posted successfully!' });
         // Reset form after creation
         setFormData({
@@ -91,6 +93,7 @@ export default function PostOpportunity({ initialData = null, onSuccess }) {
       }
       if (onSuccess) onSuccess();
     } catch (err) {
+
       console.error('Error saving opportunity:', err);
       const errDetail = err.response?.data
         ? typeof err.response.data === 'string'

@@ -13,9 +13,11 @@
     "@react-oauth/google": "^0.13.5",
     "axios": "^1.19.0",
     "firebase": "^12.17.1",
+    "lucide-react": "^1.48.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-google-recaptcha-v3": "^1.11.0",
+    "react-hot-toast": "^2.6.1",
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Users } from 'lucide-react';
 import { opportunityService } from '../../services/opportunityService';
 import { api, authService } from '../../services/authService';
 import PaginationControl from '../common/PaginationControl';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
+import EmptyState from '../common/EmptyState';
 
 export default function ApplicantsView({ selectedOpportunity = null, onSelectOpportunity }) {
   const [opportunities, setOpportunities] = useState([]);
@@ -181,15 +183,17 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
       {loading ? (
         <div className="discovery-loading">Loading applicants...</div>
       ) : applicants.length === 0 ? (
-        <div className="dashboard-stat-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>No Applicants Found</h3>
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
-            {activeOpp === 'all' || !activeOpp
+        <EmptyState
+          icon={Users}
+          title="No applicants yet"
+          subtitle={
+            activeOpp === 'all' || !activeOpp
               ? 'No candidate applications received across any of your posted opportunities yet.'
-              : `No candidates have applied to "${activeOpp.title}" yet.`}
-          </p>
-        </div>
+              : `No candidates have applied to "${activeOpp.title}" yet.`
+          }
+        />
       ) : (
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {applicants.map((app) => {
             const applicantObj = app.applicant || {};

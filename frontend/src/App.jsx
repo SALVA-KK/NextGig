@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import Home from './pages/Home';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
@@ -20,6 +21,21 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 function App() {
   return (
     <Router>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#ffffff',
+          },
+          success: {
+            iconTheme: {
+              primary: '#000000',
+              secondary: '#ffffff',
+            },
+          },
+        }}
+      />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/opportunities/:id" element={<OpportunityDetail />} />
@@ -85,6 +101,6 @@ function App() {
   );
 }
 
-
 export default App;
+
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PasswordInput from '../common/PasswordInput';
 import { authService } from '../../services/authService';
 
 /**
@@ -85,10 +86,8 @@ export default function ChangePasswordCard() {
         <form onSubmit={handleSubmit} className="auth-form" style={{ marginTop: '8px' }}>
           <div className="form-group">
             <label htmlFor="old_password">Current Password</label>
-            <input
+            <PasswordInput
               id="old_password"
-              type="password"
-              className="form-input"
               placeholder="Enter current password"
               value={oldPassword}
               onChange={(e) => setOldPassword(e.target.value)}
@@ -100,10 +99,8 @@ export default function ChangePasswordCard() {
 
           <div className="form-group">
             <label htmlFor="new_password">New Password</label>
-            <input
+            <PasswordInput
               id="new_password"
-              type="password"
-              className="form-input"
               placeholder="Enter new password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -115,10 +112,8 @@ export default function ChangePasswordCard() {
 
           <div className="form-group">
             <label htmlFor="confirm_password">Confirm New Password</label>
-            <input
+            <PasswordInput
               id="confirm_password"
-              type="password"
-              className="form-input"
               placeholder="Confirm new password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -146,3 +141,4 @@ export default function ChangePasswordCard() {
     </div>
   );
 }
+
