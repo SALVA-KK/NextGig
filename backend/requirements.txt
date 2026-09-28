@@ -26,4 +26,7 @@ redis==8.1.0
 django-celery-beat==2.9.0
 requests
 firebase-admin
+pypdf
+python-docx
+google-genai>=2.25.0
 

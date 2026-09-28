@@ -91,6 +91,20 @@ export const resumeService = {
       throw new Error(formatError(error, 'Failed to download resume file.'));
     }
   },
+
+  /**
+   * Request AI-assisted resume parsing (/api/accounts/profile/resume/parse/)
+   */
+  parseResumeAI: async () => {
+    try {
+      const response = await api.post('/accounts/profile/resume/parse/');
+      return response.data;
+    } catch (error) {
+      console.error('[resumeService] parseResumeAI error:', error);
+      throw new Error(formatError(error, 'Could not parse the resume. Please try again or fill in your profile manually.'));
+    }
+  },
 };
 
 export default resumeService;
+

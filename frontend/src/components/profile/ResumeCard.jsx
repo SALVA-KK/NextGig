@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ProfileSection from './ProfileSection';
 import { resumeService } from '../../services/resumeService';
+import { studentProfileService } from '../../services/studentProfileService';
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
-export default function ResumeCard() {
+export default function ResumeCard({ onProfileUpdate, currentProfile }) {
   const [resume, setResume] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -13,6 +14,17 @@ export default function ResumeCard() {
   const [downloading, setDownloading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [message, setMessage] = useState(null);
+
+  // AI Resume Parsing States
+  const [parsing, setParsing] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState({
+    skills: [],
+    qualification_name: '',
+    institution: '',
+  });
+  const [newSkillText, setNewSkillText] = useState('');
+  const [savingSuggestions, setSavingSuggestions] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -38,6 +50,103 @@ export default function ResumeCard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleParseAI = async () => {
+    setMessage(null);
+    setParsing(true);
+    try {
+      const data = await resumeService.parseResumeAI();
+      setAiSuggestions({
+        skills: Array.isArray(data.skills) ? data.skills : [],
+        qualification_name: data.qualification_name || '',
+        institution: data.institution || '',
+      });
+      setShowReviewModal(true);
+    } catch (err) {
+      console.error('[ResumeCard] handleParseAI error:', err);
+      setMessage({
+        type: 'error',
+        text: err.message || 'Could not parse the resume. Please try again or fill in your profile manually.',
+      });
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleSaveSuggestions = async () => {
+    setMessage(null);
+    setSavingSuggestions(true);
+    try {
+      const existingSkills = Array.isArray(currentProfile?.skills) ? currentProfile.skills : [];
+      const suggestedSkills = Array.isArray(aiSuggestions?.skills) ? aiSuggestions.skills : [];
+
+      const existingLowerSet = new Set(existingSkills.map((s) => String(s).trim().toLowerCase()));
+      const mergedSkills = [...existingSkills];
+
+      suggestedSkills.forEach((skill) => {
+        const trimmed = String(skill || '').trim();
+        if (trimmed && !existingLowerSet.has(trimmed.toLowerCase())) {
+          mergedSkills.push(trimmed);
+          existingLowerSet.add(trimmed.toLowerCase());
+        }
+      });
+
+      const payload = {
+        skills: mergedSkills,
+      };
+
+      if (aiSuggestions.qualification_name && aiSuggestions.qualification_name.trim()) {
+        payload.qualification_name = aiSuggestions.qualification_name.trim();
+      }
+
+      if (aiSuggestions.institution && aiSuggestions.institution.trim()) {
+        payload.institution = aiSuggestions.institution.trim();
+      }
+
+      const updatedProfile = await studentProfileService.updateStudentProfile(payload);
+
+      if (typeof onProfileUpdate === 'function') {
+        onProfileUpdate(updatedProfile);
+      }
+
+      setShowReviewModal(false);
+      setMessage({
+        type: 'success',
+        text: 'Profile details updated successfully from AI suggestions!',
+      });
+    } catch (err) {
+      console.error('[ResumeCard] handleSaveSuggestions error:', err);
+      setMessage({
+        type: 'error',
+        text: err.message || 'Failed to update profile.',
+      });
+    } finally {
+      setSavingSuggestions(false);
+    }
+  };
+
+  const handleDiscardSuggestions = () => {
+    setShowReviewModal(false);
+  };
+
+  const handleAddSkill = () => {
+    if (!newSkillText.trim()) return;
+    const skill = newSkillText.trim();
+    if (!aiSuggestions.skills.includes(skill)) {
+      setAiSuggestions((prev) => ({
+        ...prev,
+        skills: [...prev.skills, skill],
+      }));
+    }
+    setNewSkillText('');
+  };
+
+  const handleRemoveSkill = (skillToRemove) => {
+    setAiSuggestions((prev) => ({
+      ...prev,
+      skills: prev.skills.filter((s) => s !== skillToRemove),
+    }));
   };
 
   const handleFileSelect = (e) => {
@@ -221,11 +330,44 @@ export default function ResumeCard() {
 
             {/* Resume Action Buttons */}
             <div className="resume-actions-group">
+              {/* AI Resume Parse Button - VISIBLE ONLY WHEN RESUME IS UPLOADED */}
+              <button
+                type="button"
+                className="btn-primary-sm"
+                onClick={handleParseAI}
+                disabled={parsing || downloading || deleting}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: '#4f46e5',
+                  color: '#ffffff',
+                  fontWeight: '600',
+                }}
+              >
+                {parsing ? (
+                  <>
+                    <svg className="animate-spin" width="16" height="16" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                    <span>Reading your resume...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                    </svg>
+                    <span>Parse resume with AI</span>
+                  </>
+                )}
+              </button>
+
               <button
                 type="button"
                 className="btn-secondary-sm"
                 onClick={handleDownload}
-                disabled={downloading || deleting}
+                disabled={parsing || downloading || deleting}
               >
                 {downloading ? 'Opening File...' : 'View / Download'}
               </button>
@@ -237,7 +379,7 @@ export default function ResumeCard() {
                   setMessage(null);
                   if (fileInputRef.current) fileInputRef.current.click();
                 }}
-                disabled={downloading || deleting}
+                disabled={parsing || downloading || deleting}
               >
                 Replace
               </button>
@@ -249,7 +391,7 @@ export default function ResumeCard() {
                   setMessage(null);
                   setShowDeleteConfirm(true);
                 }}
-                disabled={downloading || deleting}
+                disabled={parsing || downloading || deleting}
               >
                 Delete
               </button>
@@ -264,6 +406,7 @@ export default function ResumeCard() {
               />
             </div>
           </div>
+
         ) : (
           /* STATE 2: Empty State or File Selected for Upload/Replace */
           <div className="resume-upload-box">
@@ -385,6 +528,161 @@ export default function ResumeCard() {
             </div>
           </div>
         )}
+
+        {/* AI Resume Suggestions Review Modal */}
+        {showReviewModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-xl w-full max-w-xl p-6 sm:p-8 space-y-6 my-8">
+              <div className="flex items-start justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">✨</span>
+                    <h3 className="text-lg font-extrabold text-slate-900">
+                      AI Resume Suggestions
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Review and edit the AI-extracted details below before saving them to your profile. Nothing is saved until you click <strong>Save to Profile</strong>.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDiscardSuggestions}
+                  className="text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-5 border-t border-b border-slate-100 py-5">
+                {/* 1. Skills Field */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-700">
+                    Detected Skills
+                  </label>
+                  <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 min-h-[48px] items-center">
+                    {aiSuggestions.skills.length > 0 ? (
+                      aiSuggestions.skills.map((skill, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"
+                        >
+                          {skill}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSkill(skill)}
+                            className="hover:text-indigo-900 font-extrabold text-xs ml-1"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-amber-700 font-medium italic">
+                        Couldn't detect this — fill in manually
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={newSkillText}
+                      onChange={(e) => setNewSkillText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddSkill();
+                        }
+                      }}
+                      placeholder="Add a skill..."
+                      className="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddSkill}
+                      className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Qualification Name Field */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-700">
+                    Qualification Name / Degree
+                  </label>
+                  <input
+                    type="text"
+                    value={aiSuggestions.qualification_name}
+                    onChange={(e) =>
+                      setAiSuggestions((prev) => ({
+                        ...prev,
+                        qualification_name: e.target.value,
+                      }))
+                    }
+                    placeholder="Couldn't detect this — fill in manually"
+                    className="w-full px-4 py-2.5 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-amber-700 placeholder:italic placeholder:font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                  {currentProfile?.qualification_name &&
+                    String(currentProfile.qualification_name).trim() !== String(aiSuggestions.qualification_name || '').trim() && (
+                      <p className="text-xs text-slate-500 font-medium pt-0.5">
+                        Current: <span className="font-semibold text-slate-700">{currentProfile.qualification_name}</span>
+                      </p>
+                    )}
+                </div>
+
+                {/* 3. Institution Field */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-700">
+                    Institution / University
+                  </label>
+                  <input
+                    type="text"
+                    value={aiSuggestions.institution}
+                    onChange={(e) =>
+                      setAiSuggestions((prev) => ({
+                        ...prev,
+                        institution: e.target.value,
+                      }))
+                    }
+                    placeholder="Couldn't detect this — fill in manually"
+                    className="w-full px-4 py-2.5 text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-amber-700 placeholder:italic placeholder:font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                  {currentProfile?.institution &&
+                    String(currentProfile.institution).trim() !== String(aiSuggestions.institution || '').trim() && (
+                      <p className="text-xs text-slate-500 font-medium pt-0.5">
+                        Current: <span className="font-semibold text-slate-700">{currentProfile.institution}</span>
+                      </p>
+                    )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleDiscardSuggestions}
+                  disabled={savingSuggestions}
+                  className="px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all"
+                >
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSuggestions}
+                  disabled={savingSuggestions}
+                  className="px-5 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {savingSuggestions ? 'Saving to Profile...' : 'Save to Profile'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </ProfileSection>
   );

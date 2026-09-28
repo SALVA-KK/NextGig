@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 import pyotp
 import secrets
 import time
@@ -52,7 +54,11 @@ from .serializers import (
     UserProfileSerializer,
     VerifyOTPSerializer,
 )
-from .throttling import ResumeUploadBurstRateThrottle, ResumeUploadSustainedRateThrottle
+from .throttling import (
+    ResumeParseRateThrottle,
+    ResumeUploadBurstRateThrottle,
+    ResumeUploadSustainedRateThrottle,
+)
 
 
 # OpenAPI Inline Serializers for Swagger Documentation
@@ -1475,6 +1481,162 @@ class StudentResumeDownloadView(APIView):
         )
         response["Content-Disposition"] = f'inline; filename="{resume.original_filename}"'
         return response
+
+
+class ResumeParseView(APIView):
+    """
+    API endpoint that parses an already-uploaded student resume using Google Gemini AI.
+    Extracts skills, qualification_name, and institution suggestions.
+    This action MUST NOT modify the database (StudentProfile is untouched).
+    """
+
+    permission_classes = [IsAuthenticated, IsStudentRole]
+    throttle_classes = [ResumeParseRateThrottle]
+
+    @extend_schema(
+        summary="AI-assisted resume parsing",
+        description="Extracts skills, qualification_name, and institution from the student's existing resume using Google Gemini API. Does NOT save to profile.",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        resume = Resume.objects.filter(user=request.user).first()
+        if not resume or not resume.file:
+            return Response(
+                {"detail": "Please upload a resume first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        file_path = resume.file.path if hasattr(resume.file, "path") else None
+        filename = resume.original_filename or (os.path.basename(file_path) if file_path else "")
+
+        if not file_path or not os.path.exists(file_path):
+            return Response(
+                {"detail": "Resume file not found on server storage."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ext = os.path.splitext(filename)[1].lower()
+        extracted_text = ""
+        try:
+            if ext == ".pdf":
+                import pypdf
+                reader = pypdf.PdfReader(file_path)
+                pages_text = []
+                for page in reader.pages:
+                    txt = page.extract_text()
+                    if txt:
+                        pages_text.append(txt)
+                extracted_text = "\n".join(pages_text)
+            elif ext == ".docx":
+                import docx
+                doc = docx.Document(file_path)
+                paragraphs_text = [p.text for p in doc.paragraphs if p.text]
+                extracted_text = "\n".join(paragraphs_text)
+            else:
+                return Response(
+                    {"detail": "Unsupported file format for AI parsing."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except Exception as err:
+            logger.error("Text extraction failed for resume file %s: %s", filename, err, exc_info=True)
+            return Response(
+                {"detail": "Could not parse the resume. Please try again or fill in your profile manually."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not extracted_text or not extracted_text.strip():
+            return Response(
+                {"detail": "Could not parse the resume. Please try again or fill in your profile manually."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        gemini_model = getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash")
+        api_key = getattr(settings, "GOOGLE_API_KEY", None)
+        if not api_key:
+            logger.error("GOOGLE_API_KEY is not configured in settings.")
+            return Response(
+                {"detail": "Could not parse the resume. Please try again or fill in your profile manually."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+
+            prompt = (
+                "You are an AI resume parser. Below is raw text extracted from a student's resume.\n\n"
+                "Extract the following three fields and return ONLY valid JSON matching this exact structure:\n"
+                "{\n"
+                '  "skills": ["skill1", "skill2"],\n'
+                '  "qualification_name": "degree title",\n'
+                '  "institution": "university or school name"\n'
+                "}\n\n"
+                "Rules:\n"
+                '1. "skills": list of relevant technical/professional skills (array of strings). Return [] if none detected.\n'
+                '2. "qualification_name": degree/qualification title (string). Return "" if not detected.\n'
+                '3. "institution": university/college/school name (string). Return "" if not detected.\n'
+                '4. Return empty string/array for any field you cannot confidently determine. Never guess or write placeholder text.\n'
+                '5. Return ONLY raw JSON, with no markdown code blocks or extra text.\n\n'
+                f"Resume Text:\n---\n{extracted_text.strip()[:8000]}\n---"
+            )
+
+            response = client.models.generate_content(
+                model=gemini_model,
+                contents=prompt
+            )
+            raw_response_text = response.text if response and hasattr(response, "text") else ""
+
+            clean_text = raw_response_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            elif clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+            clean_text = clean_text.strip()
+
+            parsed_json = json.loads(clean_text)
+        except Exception as exc:
+            logger.error(f"Gemini API error ({type(exc).__name__}): {exc}", exc_info=True)
+            return Response(
+                {"detail": "Could not parse the resume. Please try again or fill in your profile manually."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(parsed_json, dict):
+            logger.error("Parsed Gemini response is not a dict: %s", parsed_json)
+            return Response(
+                {"detail": "Could not parse the resume. Please try again or fill in your profile manually."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        skills = parsed_json.get("skills", [])
+        qualification_name = parsed_json.get("qualification_name", "")
+        institution = parsed_json.get("institution", "")
+
+        if not isinstance(skills, list):
+            skills = []
+        else:
+            skills = [str(s).strip() for s in skills if str(s).strip()]
+
+        if not isinstance(qualification_name, str):
+            qualification_name = ""
+        else:
+            qualification_name = qualification_name.strip()
+
+        if not isinstance(institution, str):
+            institution = ""
+        else:
+            institution = institution.strip()
+
+        return Response(
+            {
+                "skills": skills,
+                "qualification_name": qualification_name,
+                "institution": institution,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 

@@ -2,7 +2,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.accounts.models import CustomUser, ProviderProfile
+from apps.accounts.models import CustomUser, ProviderProfile, StudentProfile, Resume
 from apps.accounts.utils import format_phone_for_msg91
 
 
@@ -1344,6 +1344,182 @@ class StudentProfileTestCase(TestCase):
         ser_applicant_opted = ApplicantPublicSerializer(self.student_user).data
         self.assertEqual(ser_applicant_opted["phone_number"], "+919876543210")
         self.assertEqual(ser_applicant_opted["whatsapp_number"], "+919876543210")
+
+
+from unittest.mock import MagicMock, patch
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+
+@override_settings(ALLOWED_HOSTS=["*"])
+class ResumeAIParsingTestCase(TestCase):
+    """
+    Test suite for AI-assisted resume parsing endpoint (/api/accounts/profile/resume/parse/).
+    Verifies text extraction, Gemini API mock calls, database immutability on parse,
+    malformed response handling, and rate limiting.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+        self.parse_url = "/api/accounts/profile/resume/parse/"
+
+        self.student_user = CustomUser.objects.create_user(
+            email="parse_student@example.com",
+            password="Password123!",
+            full_name="Parse Student",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.student_profile, _ = StudentProfile.objects.get_or_create(user=self.student_user)
+
+    def test_parse_without_resume_returns_400(self):
+        self.client.force_authenticate(user=self.student_user)
+        res = self.client.post(self.parse_url)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.json()["detail"], "Please upload a resume first.")
+
+    @patch("pypdf.PdfReader")
+    @patch("google.genai.Client")
+    def test_successful_resume_parse_does_not_modify_database(self, mock_client_class, mock_pdf_reader):
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Python Developer with B.Tech at Stanford"
+        mock_pdf_reader.return_value.pages = [mock_page]
+
+        # 1. Attach sample resume
+        sample_pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" + b"A" * 500
+        resume_file = SimpleUploadedFile("my_resume.pdf", sample_pdf_content, content_type="application/pdf")
+        Resume.objects.create(
+            user=self.student_user,
+            file=resume_file,
+            original_filename="my_resume.pdf",
+            file_size=len(sample_pdf_content),
+            mime_type="application/pdf",
+        )
+
+        # 2. Mock Gemini API response
+        mock_response = MagicMock()
+        mock_response.text = '{\n  "skills": ["Python", "Django", "React"],\n  "qualification_name": "Bachelor of Technology",\n  "institution": "Stanford University"\n}'
+        mock_client_instance = MagicMock()
+        mock_client_instance.models.generate_content.return_value = mock_response
+        mock_client_class.return_value = mock_client_instance
+
+        # Record profile state BEFORE calling parse
+        self.student_profile.refresh_from_db()
+        skills_before = list(self.student_profile.skills)
+        qual_before = self.student_profile.qualification_name
+        inst_before = self.student_profile.institution
+
+        # 3. Call parse endpoint
+        self.client.force_authenticate(user=self.student_user)
+        with override_settings(GOOGLE_API_KEY="test_key_123"):
+            res = self.client.post(self.parse_url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertEqual(data["skills"], ["Python", "Django", "React"])
+        self.assertEqual(data["qualification_name"], "Bachelor of Technology")
+        self.assertEqual(data["institution"], "Stanford University")
+
+        # 4. ASSERT DATABASE IS 100% UNCHANGED
+        self.student_profile.refresh_from_db()
+        self.assertEqual(self.student_profile.skills, skills_before)
+        self.assertEqual(self.student_profile.qualification_name, qual_before)
+        self.assertEqual(self.student_profile.institution, inst_before)
+
+    @patch("pypdf.PdfReader")
+    @patch("google.genai.Client")
+    def test_malformed_model_response_returns_400_sanitized(self, mock_client_class, mock_pdf_reader):
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Some sample text"
+        mock_pdf_reader.return_value.pages = [mock_page]
+
+        sample_pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" + b"B" * 500
+        resume_file = SimpleUploadedFile("resume.pdf", sample_pdf_content, content_type="application/pdf")
+        Resume.objects.create(
+            user=self.student_user,
+            file=resume_file,
+            original_filename="resume.pdf",
+            file_size=len(sample_pdf_content),
+            mime_type="application/pdf",
+        )
+
+        mock_response = MagicMock()
+        mock_response.text = "Invalid raw text response without JSON"
+        mock_client_instance = MagicMock()
+        mock_client_instance.models.generate_content.return_value = mock_response
+        mock_client_class.return_value = mock_client_instance
+
+        self.client.force_authenticate(user=self.student_user)
+        with override_settings(GOOGLE_API_KEY="test_key_123"):
+            res = self.client.post(self.parse_url)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            res.json()["detail"],
+            "Could not parse the resume. Please try again or fill in your profile manually."
+        )
+
+    @patch("pypdf.PdfReader")
+    def test_rate_limiting_resume_parse(self, mock_pdf_reader):
+        from django.core.cache import cache
+        cache.clear()
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Some sample text"
+        mock_pdf_reader.return_value.pages = [mock_page]
+
+        sample_pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" + b"C" * 500
+        resume_file = SimpleUploadedFile("resume.pdf", sample_pdf_content, content_type="application/pdf")
+        Resume.objects.create(
+            user=self.student_user,
+            file=resume_file,
+            original_filename="resume.pdf",
+            file_size=len(sample_pdf_content),
+            mime_type="application/pdf",
+        )
+
+        self.client.force_authenticate(user=self.student_user)
+
+        # Force TESTING = False temporarily for rate limit test
+        with patch("apps.accounts.throttling.settings.TESTING", False):
+            with patch("google.genai.Client") as mock_client_class:
+                mock_resp = MagicMock()
+                mock_resp.text = '{"skills": [], "qualification_name": "", "institution": ""}'
+                mock_inst = MagicMock()
+                mock_inst.models.generate_content.return_value = mock_resp
+                mock_client_class.return_value = mock_inst
+
+                with override_settings(GOOGLE_API_KEY="test_key_123"):
+                    # Send 5 allowed requests
+                    for _ in range(5):
+                        res = self.client.post(self.parse_url)
+                        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+                    # 6th request within 1 hour is rate-limited (5/hour)
+                    res6 = self.client.post(self.parse_url)
+                    self.assertEqual(res6.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_resume_upload_throttling(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        upload_url = "/api/accounts/profile/resume/"
+        self.client.force_authenticate(user=self.student_user)
+
+        with patch("apps.accounts.throttling.settings.TESTING", False):
+            sample_pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" + b"X" * 500
+            
+            # Send initial upload
+            resume_file = SimpleUploadedFile("resume.pdf", sample_pdf_content, content_type="application/pdf")
+            res1 = self.client.post(upload_url, {"file": resume_file})
+            self.assertIn(res1.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
+
+            # Immediate second upload triggers burst limit (1/10s)
+            resume_file2 = SimpleUploadedFile("resume2.pdf", sample_pdf_content, content_type="application/pdf")
+            res2 = self.client.post(upload_url, {"file": resume_file2})
+            self.assertEqual(res2.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
 
 
 

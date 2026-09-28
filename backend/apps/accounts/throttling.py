@@ -144,3 +144,27 @@ class ResumeUploadSustainedRateThrottle(SimpleRateThrottle):
         }
 
 
+class ResumeParseRateThrottle(SimpleRateThrottle):
+    """
+    Rate throttle for AI-assisted resume parsing.
+    Limits parse requests to max 5 requests per hour per user.
+    Prevents unnecessary hammering of the Gemini API endpoint.
+    """
+
+    scope = "resume_parse"
+    rate = "5/hour"
+
+    def get_cache_key(self, request, view):
+        if getattr(settings, "TESTING", False):
+            return None
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
+
+

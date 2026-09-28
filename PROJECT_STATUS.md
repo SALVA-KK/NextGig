@@ -40,8 +40,36 @@ Today's session delivered substantial architectural, security, database, API, UI
 
 ### In-App Notification Subsystem
 - **Notification Model & REST Endpoints**: Built `Notification` model (`recipient`, `actor`, `notification_type`, `title`, `message`, `opportunity`, `application`, `is_read`, `read_at`, `event_key`, `created_at`). Created `GET /api/notifications/` (`NotificationListView`) and `PATCH /api/notifications/<id>/read/` (`NotificationMarkReadView`).
-- **Notification Types**: Supported `new_application`, `application_status_changed`, `application_withdrawn`, `opportunity_expired`, `opportunity_force_closed`, `opportunity_reopened`, `provider_welcome`, `provider_verified`, `provider_unverified`.
+- **Notification Types**: Supported `new_application`, `application_status_changed`, `application_withdrawn`, `opportunity_expired`, `opportunity_force_closed`, `opportunity_reopened`, `provider_welcome`, `provider_verified`, `provider_unverified`, and `recommendations_digest`.
 - **Header UI Dropdown**: Built header notification bell icon with real-time unread badge counter, popover dropdown list, and one-click mark-as-read functionality.
+
+### Verified Provider Badge Display
+- **Serializer & Detail Page Rendering**: Added `is_verified` field to `PosterPublicSerializer` in [`backend/apps/opportunities/serializers.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/serializers.py) and rendered a visual "Verified Provider" checkmark badge on the opportunity detail page ([`OpportunityDetail.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/pages/opportunities/OpportunityDetail.jsx)). Badge display is strictly confined to the detail view, remaining omitted from opportunity cards and list views.
+
+### Daily Opportunity Recommendation Engine
+- **Recommendation Model & Scoring Task**: Created `RecommendedOpportunity` database model in [`backend/apps/opportunities/models.py`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/apps/opportunities/models.py). Built Celery Beat periodic scheduled task (`generate_daily_recommendations` at 6:00 AM daily cron) scoring opportunities based on skill overlap, city match, and student application category history.
+- **REST API Endpoint & Digest Notifications**: Implemented `GET /api/opportunities/recommended/` endpoint for student users. Built a single consolidated notification digest per student (`RECOMMENDATIONS_DIGEST`) with `event_key` deduplication.
+
+### Navigation Restructure & Sidebar Single-Nav Architecture
+- **Global Navigation Unification**: Removed duplicate top tab bars across Student, Provider, and Admin dashboards, establishing [`Sidebar.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/dashboard/Sidebar.jsx) as the sole navigation interface across the application.
+- **Opportunities Dropdown Navigation**: Merged "Student Collaborations" into an Opportunities dropdown (**All Opportunities**, **Recommended**, **Collaborations**) for student accounts. Built a similar Opportunities dropdown for providers (**My Opportunities**, **Post Opportunity**, **Other Opportunities**) with a local **All / Collaborations** toggle on the Other Opportunities view.
+
+### UI Interaction Cleanups & Pagination Auto-Hiding
+- **Clickable Opportunity Cards**: Removed the explicit "View Details" button from opportunity cards, making the entire opportunity card container clickable to navigate directly to the detail view.
+- **Smart Pagination Control**: Updated [`PaginationControl.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/common/PaginationControl.jsx) to automatically hide itself when total results are 0 or fit entirely on a single page.
+
+### Admin User Management Drill-Down & Hard Deletion Safeguards
+- **Privacy-Aware User Detail Endpoint**: Built `GET /api/admin/users/<id>/detail/` returning user profile data (respecting `show_phone` and `show_whatsapp` privacy toggles), along with student submitted applications or provider posted opportunities.
+- **Hard Deletion Endpoint with Absolute Guards**: Implemented `DELETE /api/admin/users/<id>/` performing permanent hard deletion. Protected with hard blocks (`HTTP 403 Forbidden` with NO superuser exception) preventing self-deletion and admin-on-admin deletion.
+- **Cascading Audit Logs**: Verified pre-deletion `AdminActionLog` logging (`USER_DELETED`) created prior to `user.delete()` confirmed to survive database CASCADE deletion.
+
+### Admin Platform Dashboard & Analytics
+- **Platform Analytics Summary Endpoint**: Built `GET /api/admin/dashboard/summary/` returning platform metrics (total & active users, total/open/closed opportunities, applications count, pending provider verifications, 7-day signups breakdown, category breakdown, and recent admin action logs).
+- **Dashboard Tab Integration**: Added a new dedicated **Dashboard** sidebar tab as the default landing view for administrators, and renamed the personal account profile tab to **Account Settings**.
+
+### Scratch Directory Version Control Cleanup
+- **Git Ignore Exclusion**: Added `backend/scratch/` entry to `.gitignore` to prevent scratch data scripts and temporary test files from tracking in version control.
+
 
 ### UI/UX Redesign & Profile Layout Streamlining
 - **Modular Profile Architecture**: Re-architected profile frontend into a modular structure under `frontend/src/components/profile/`: [`ProfileShell.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileShell.jsx), [`ProfileHeader.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileHeader.jsx), [`ProfileTabs.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileTabs.jsx), [`ProfileOverviewTab.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileOverviewTab.jsx), [`ProfilePortfolioTab.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfilePortfolioTab.jsx), [`ProfileSettingsTab.jsx`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/components/profile/ProfileSettingsTab.jsx), and [`profileFieldConfigs.js`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/frontend/src/config/profileFieldConfigs.js).
@@ -339,6 +367,15 @@ NextGig/
 - `updated_at`: DateTimeField (auto_now=True)
 - *Constraints*: `unique_together = ('applicant', 'opportunity')`, ordering `[-applied_at]`.
 
+### `RecommendedOpportunity` (table: `recommended_opportunities`)
+- `id`: BigAutoField (Primary Key)
+- `student`: ForeignKey (`CustomUser`, on_delete=CASCADE, related_name=`recommended_opportunities`)
+- `opportunity`: ForeignKey (`Opportunity`, on_delete=CASCADE, related_name=`recommended_for`)
+- `score`: IntegerField (default=0)
+- `created_at`: DateTimeField (auto_now_add=True)
+- *Constraints*: `unique_together = ("student", "opportunity")`, ordering `["-score", "-created_at"]`.
+
+
 ### `Resume` (table: `resumes`)
 - `id`: BigAutoField (Primary Key)
 - `user`: OneToOneField (`CustomUser`, on_delete=CASCADE, related_name=`resume`)
@@ -380,15 +417,17 @@ NextGig/
 ### `AdminActionLog` (table: `admin_action_logs`)
 - `id`: BigAutoField (Primary Key)
 - `admin`: ForeignKey (`CustomUser`, on_delete=CASCADE, related_name=`admin_actions`)
-- `action_type`: CharField (max_length=50, choices: `provider_verified`, `provider_unverified`, `user_activated`, `user_deactivated`, `opportunity_force_closed`, `opportunity_reopened`, `opportunity_deleted`)
+- `action_type`: CharField (max_length=50, choices: `provider_verified`, `provider_unverified`, `user_activated`, `user_deactivated`, `opportunity_force_closed`, `opportunity_reopened`, `opportunity_deleted`, `user_deleted`)
 - `target_description`: CharField (max_length=255)
 - `timestamp`: DateTimeField (auto_now_add=True, db_index=True)
+
 
 ### `Notification` (table: `notifications`)
 - `id`: BigAutoField (Primary Key)
 - `recipient`: ForeignKey (`CustomUser`, on_delete=CASCADE, related_name=`notifications`, db_index=True)
 - `actor`: ForeignKey (`CustomUser`, on_delete=SET_NULL, null=True, blank=True, related_name=`sent_notifications`)
-- `notification_type`: CharField (max_length=50, choices: `new_application`, `application_status_changed`, `application_withdrawn`, `opportunity_expired`, `opportunity_force_closed`, `opportunity_reopened`, `provider_welcome`, `provider_verified`, `provider_unverified`)
+- `notification_type`: CharField (max_length=50, choices: `new_application`, `application_status_changed`, `application_withdrawn`, `opportunity_expired`, `opportunity_force_closed`, `opportunity_reopened`, `provider_welcome`, `provider_verified`, `provider_unverified`, `recommendations_digest`)
+
 - `title`: CharField (max_length=255)
 - `message`: TextField ()
 - `opportunity`: ForeignKey (`Opportunity`, on_delete=SET_NULL, null=True, blank=True, related_name=`notifications`)
@@ -433,7 +472,9 @@ NextGig/
 
 ### Opportunities App (`/api/opportunities/` & `/api/applications/`)
 - `GET /api/opportunities/` - Public listing (`status='open'` by default; query params: `category`, `work_mode`, `city`, `status`; page_size=20)
+- `GET /api/opportunities/recommended/` - Daily algorithmic opportunity recommendations for student users (scored by skill overlap, city match, and application category history)
 - `POST /api/opportunities/` - Post new opportunity (verified users; rate limit 10/hour)
+
 - `GET /api/opportunities/<id>/` - Public opportunity detail view
 - `PUT / PATCH / DELETE /api/opportunities/<id>/` - Update or delete listing (poster or admin only)
 - `POST /api/opportunities/<id>/save/` - Bookmark opportunity (verified users)
@@ -451,11 +492,15 @@ NextGig/
 - `PATCH /api/notifications/<id>/read/` - Mark notification as read
 
 ### Administrative Endpoints (`/api/admin/`)
+- `GET /api/admin/dashboard/summary/` - Platform-wide analytical summary for admin dashboard (user/opportunity/application metrics, pending provider verifications, 7-day signups, category breakdown, recent action logs)
 - `GET /api/admin/users/` - Paginated user management list
+- `GET /api/admin/users/<id>/detail/` - Admin user drill-down detail (privacy-toggle-respecting contact info, student submitted applications or provider posted listings)
+- `DELETE /api/admin/users/<id>/` - Permanent hard delete of user account with pre-deletion AdminActionLog audit logging (`USER_DELETED`), blocked on self-deletion and admin-on-admin deletion (403)
 - `PATCH /api/admin/users/<id>/status/` - Activate or deactivate user account
 - `GET /api/admin/providers/` - Provider organization verification list
 - `PATCH /api/admin/providers/<id>/verify/` - Verify or unverify provider organization
 - `GET /api/admin/action-logs/` - Administrative audit action logs
+
 
 ---
 
@@ -474,11 +519,16 @@ NextGig/
 | **Student Resume Upload** | **Done** | **Done** | OneToOne `Resume` model, magic-bytes PDF/DOCX validation, protected download endpoints, `<ResumeCard />` UI. |
 | **In-App Notifications** | **Done** | **Done** | `Notification` model, REST endpoints, header bell icon badge dropdown with real-time unread counter. |
 | **Admin Panel & Moderation** | **Done** | **Done** | Dedicated `AdminProfileView`, user activation/deactivation, provider verification, action logging, TOTP MFA UI. |
+| **Verified Provider Badge Display** | **Done** | **Done** | `PosterPublicSerializer` `is_verified` field and `OpportunityDetail.jsx` render "Verified Provider" checkmark badge on opportunity detail page only. |
+| **Opportunity Recommendations** | **Done** | **Done** | `RecommendedOpportunity` model, Celery Beat task (6:00 AM daily cron), `GET /api/opportunities/recommended/` endpoint, and student digest notification. |
+| **Admin User Drill-Down & Deletion** | **Done** | **Done** | `GET /api/admin/users/<id>/detail/` drill-down modal with privacy controls, `DELETE /api/admin/users/<id>/` hard delete with strict 403 guards and pre-cascade audit logs. |
+| **Admin Platform Dashboard** | **Done** | **Done** | `GET /api/admin/dashboard/summary/` analytics summary endpoint, metrics cards, signup chart, category pills, and recent action logs list. |
+| **Sidebar & Dashboard Navigation** | **Done** | **Done** | Sidebar is sole navigation across all 3 dashboards (duplicate top tab bars removed). Student dropdown (All/Recommended/Collaborations) and Provider dropdown (My Opportunities/Post Opportunity/Other Opportunities with local All/Collaborations toggle). |
 | **Search & Filtering** | **Done** | **Partially Done** | Backend supports `category`, `work_mode`, `city`, `status` query filters. UI search bar active. |
 | **Real Geo-Location Search** | **Not Started** | **Not Started** | `latitude`/`longitude` columns exist on `Opportunity`; distance calculation queries not yet implemented. |
 | **Reviews & Ratings** | **Not Started** | **Not Started** | Schema and API endpoints not yet created. |
 | **Direct Messaging** | **Not Started** | **Not Started** | Messaging models and WebSocket/REST endpoints not yet created. |
-| **Student Verified Badge Display** | **Not Started** | **Not Started** | Backend `is_verified` flag exists on `ProviderProfile`; student UI badge rendering pending layout addition. |
+
 
 ---
 
@@ -519,7 +569,7 @@ NextGig/
 ### Celery & Celery Beat
 - **Worker Process**: `celery -A config worker --loglevel=info`
 - **Beat Scheduler Process**: `celery -A config beat --loglevel=info`
-- **Process Requirement**: In local development outside Docker, Celery Beat must be launched as a separate process alongside the Celery worker to execute daily scheduled tasks (`close_expired_opportunities`). In Docker, `celery_worker` and `celery_beat` run as dedicated container services in `docker-compose.yml`.
+- **Process Requirement**: In local development outside Docker, Celery Beat must be launched as a separate process alongside the Celery worker to execute periodic scheduled tasks (`close_expired_opportunities` daily, and `generate_daily_recommendations` at 6:00 AM daily cron). In Docker, `celery_worker` and `celery_beat` run as dedicated container services in `docker-compose.yml`.
 - **Fast-Fail Fallback**: Celery broker timeouts are constrained to `2.0s`. If Redis is offline, API request threads skip async email dispatch without hanging or throwing 500 errors.
 
 ### Docker & Docker Compose
@@ -527,10 +577,11 @@ NextGig/
 - **Documentation**: Fully documented in [`backend/DOCKER.md`](file:///c:/Users/ACM/Desktop/myprojects/NextGig/backend/DOCKER.md).
 
 ### Unit Test Suite Execution
-- **Fresh Run Execution Date**: September 19, 2026
-- **Test Command**: `python manage.py test apps.accounts.tests apps.accounts.test_admin_panel apps.opportunities.tests apps.notifications.tests`
-- **Exact Test Result**: **131 passed unit tests in 546.42s (0 failures, 0 errors)**.
-- **Coverage**: Email/Password Auth, Firebase Phone Auth, Google OAuth, Admin MFA TOTP & Backup Codes, Anti-enumeration responses, ProviderProfile CRUD & permissions, Opportunity CRUD & filtering, SavedOpportunity bookmarking & CASCADE deletion, Application submission, status transitions, deadline validation, Student Resume magic-bytes validation, Notification creation/fetching, Celery task execution, and Celery broker fast-fail resilience.
+- **Fresh Run Execution Date**: September 26, 2026
+- **Test Command**: `venv/Scripts/python.exe manage.py test apps.accounts.tests apps.accounts.test_admin_panel apps.opportunities.tests apps.notifications.tests`
+- **Exact Test Result**: **139 passed unit tests in 615.38s (0 failures, 0 errors)**.
+- **Coverage**: Email/Password Auth, Firebase Phone Auth, Google OAuth, Admin MFA TOTP & Backup Codes, Anti-enumeration responses, ProviderProfile CRUD & permissions, Opportunity CRUD & filtering, SavedOpportunity bookmarking & CASCADE deletion, Application submission, status transitions, deadline validation, Student Resume magic-bytes validation, Notification creation/fetching, `RecommendedOpportunity` model & Celery Beat task (`generate_daily_recommendations`), `GET /api/opportunities/recommended/`, Admin Dashboard Summary metrics API, Admin User Detail drill-down API, Admin User Hard Delete API with self/admin-delete 403 guards, `USER_DELETED` pre-cascade audit logging, Celery task execution, and Celery broker fast-fail resilience.
+
 
 ### Pagination
 - **Global Default**: Configured in `settings.py` `REST_FRAMEWORK` setting: `DEFAULT_PAGINATION_CLASS: rest_framework.pagination.PageNumberPagination`, `PAGE_SIZE: 20`.
@@ -545,18 +596,21 @@ NextGig/
    - Real SMS delivery on Firebase is blocked by Google Cloud billing error `OR_BACR2`. Resolving requires upgrading the GCP project to the Blaze (Pay-as-you-go) plan in GCP Console. Phone Auth sandbox mode with registered test numbers functions properly.
 2. **Firebase Web API Key Restrictions**:
    - The Web API key in `firebase-credentials.json` currently lacks HTTP referrer restrictions in Google Cloud Console. Referrer restrictions should be applied prior to production launch.
-3. **Provider Profile Edge-Case Blank Page Status**:
-   - Provider profiles load properly under standard conditions. Verification for legacy pre-migration accounts missing `ProviderProfile` rows is complete via auto-creation on fetch; edge-case monitoring continues.
+3. **Application Deadline Validation Review**:
+   - Confirmed independently reviewed and verified — strict date checks (`opportunity.deadline < timezone.localdate()`) are actively enforced in both `ApplicationCreateSerializer` and `ApplicationCreateView` returning `HTTP 400 Bad Request`.
 4. **Reviews & Ratings System**:
    - Student and provider review submission and score calculation have not yet been built.
 5. **Direct Messaging Subsystem**:
    - Real-time or REST direct messaging between students and providers has not yet been built.
 6. **Real Geo-Location Search**:
    - Distance radius calculation based on `latitude` and `longitude` fields has not yet been built.
-7. **Verified Provider Badge Visibility to Students**:
-   - Backend `is_verified` flag exists on `ProviderProfile` and is editable in Django Admin, but student-facing UI listing cards do not yet render a visual "Verified" badge icon.
-8. **Clarification on Reviewer "Snippet" Requirement**:
+7. **Clarification on Reviewer "Snippet" Requirement**:
    - The specific format or contents of the "snippet" requirement referenced by the project reviewer was never clarified and remains pending product specification.
+8. **Hardcoded API Base URL Technical Debt**:
+   - `authService.js` contains a hardcoded API base URL (`http://localhost:8000/api`) instead of drawing from an environment variable (`import.meta.env.VITE_API_BASE_URL`). Confirmed still open.
+9. **JWT Storage in localStorage Technical Debt**:
+   - JWT access and refresh tokens are stored in `localStorage` rather than HTTP-only secure cookies, exposing tokens to potential XSS vectors. Confirmed still open.
+
 
 ---
 

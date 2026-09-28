@@ -4,7 +4,7 @@ import InviteCard from '../dashboard/InviteCard';
 import ResumeCard from './ResumeCard';
 import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
 
-export default function ProfileOverviewTab({ profile, role = 'student', onEditClick }) {
+export default function ProfileOverviewTab({ profile, role = 'student', onEditClick, onProfileUpdate }) {
   const configs = role === 'provider' ? PROVIDER_FIELD_CONFIG : STUDENT_FIELD_CONFIG;
   const overviewConfigs = configs.filter((c) => c.tab === 'overview');
 
@@ -28,21 +28,29 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
 
   if (populatedConfigs.length === 0) {
     return (
-      <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm space-y-4">
-        <div className="w-12 h-12 mx-auto rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl font-bold">
-          !
+      <div className="space-y-6">
+        <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm space-y-4">
+          <div className="w-12 h-12 mx-auto rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl font-bold">
+            !
+          </div>
+          <h3 className="text-lg font-extrabold text-slate-900">Your Overview is Empty</h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            Add a bio, key skills, spoken languages, location, credentials, or website in Settings to display your full overview.
+          </p>
+          <button
+            type="button"
+            onClick={onEditClick}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all active:scale-95"
+          >
+            Edit Profile in Settings
+          </button>
         </div>
-        <h3 className="text-lg font-extrabold text-slate-900">Your Overview is Empty</h3>
-        <p className="text-sm text-slate-500 max-w-md mx-auto">
-          Add a bio, key skills, spoken languages, location, credentials, or website in Settings to display your full overview.
-        </p>
-        <button
-          type="button"
-          onClick={onEditClick}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all active:scale-95"
-        >
-          Edit Profile in Settings
-        </button>
+
+        {role === 'student' && (
+          <div className="pt-2">
+            <ResumeCard onProfileUpdate={onProfileUpdate} currentProfile={profile} />
+          </div>
+        )}
       </div>
     );
   }
@@ -216,7 +224,7 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
       {/* 5. Resume Card (Student Role ONLY) */}
       {role === 'student' && (
         <div className="pt-2">
-          <ResumeCard />
+          <ResumeCard onProfileUpdate={onProfileUpdate} currentProfile={profile} />
         </div>
       )}
 

@@ -55,6 +55,18 @@ export default function ProfileShell({ role = 'student' }) {
     loadProfile();
   }, [role]);
 
+  const handleProfileUpdate = (updatedProf) => {
+    if (updatedProf) {
+      setProfile((prev) => ({
+        ...prev,
+        ...updatedProf,
+        social_links: updatedProf.social_links || prev?.social_links || {},
+      }));
+    } else {
+      loadProfile();
+    }
+  };
+
   const handleAvatarUpload = async (file) => {
     setUploadingAvatar(true);
     setMessage(null);
@@ -196,6 +208,7 @@ export default function ProfileShell({ role = 'student' }) {
           profile={profile}
           role={role}
           onEditClick={() => setActiveTab('settings')}
+          onProfileUpdate={handleProfileUpdate}
         />
       )}
       {activeTab === 'settings' && (

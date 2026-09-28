@@ -19,6 +19,7 @@ from .views import (
     ProviderProfileView,
     RequestOTPView,
     ResetPasswordView,
+    ResumeParseView,
     StudentProfileView,
     StudentRegistrationView,
     StudentResumeDownloadView,
@@ -111,6 +112,11 @@ urlpatterns = [
         "profile/resume/download/",
         StudentResumeDownloadView.as_view(),
         name="student-resume-download",
+    ),
+    path(
+        "profile/resume/parse/",
+        ResumeParseView.as_view(),
+        name="student-resume-parse",
     ),
     path(
         "student-profile/",

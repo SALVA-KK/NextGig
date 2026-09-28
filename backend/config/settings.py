@@ -19,7 +19,10 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / ".env")
+# Load environment variables: root .env first, then backend/.env (which overrides local dev settings like DB_HOST)
+load_dotenv(BASE_DIR.parent / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
+
 
 
 
@@ -236,6 +239,9 @@ GOOGLE_CLIENT_ID = os.getenv(
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
 RECAPTCHA_SITE_KEY = "6LcBi4wtAAAAABRj00TpA7AXsd0-9z8WJ52y5uOV"
 
+# Google Gemini API Configuration (Free-tier Google AI Studio)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
 # Test environment detection flag
 TESTING = "test" in sys.argv
 
@@ -291,3 +297,8 @@ SIMPLE_JWT = {
     "SIGNING_KEY": SECRET_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+# Google Gemini API Configuration
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
