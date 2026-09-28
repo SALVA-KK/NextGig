@@ -182,6 +182,8 @@ REST_FRAMEWORK = {
         "application_create": "20/hour",
         "resume_upload_burst": "1/10s",
         "resume_upload_sustained": "30/hour",
+        "resume_parse_burst": "3/minute",
+        "resume_parse_sustained": "15/hour",
         "admin_write": "30/hour",
     },
 }
@@ -239,9 +241,6 @@ GOOGLE_CLIENT_ID = os.getenv(
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
 RECAPTCHA_SITE_KEY = "6LcBi4wtAAAAABRj00TpA7AXsd0-9z8WJ52y5uOV"
 
-# Google Gemini API Configuration (Free-tier Google AI Studio)
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
 # Test environment detection flag
 TESTING = "test" in sys.argv
 
@@ -298,7 +297,8 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# Google Gemini API Configuration
+# Google Gemini API Configuration (Single Source of Truth)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3-flash-preview")
 
