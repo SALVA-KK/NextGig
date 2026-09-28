@@ -1412,7 +1412,7 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(res.json()["detail"], "AI resume parsing is not configured.")
 
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_model_output_wrapped_in_json_fences(self, mock_client_class, mock_pdf):
         mock_pdf.return_value.pages = [MagicMock(extract_text=lambda: "Some text")]
         self._attach_resume(self.student_user)
@@ -1434,7 +1434,7 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(data["institution"], "MIT")
 
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_skills_sanitization_dedupe_and_caps(self, mock_client_class, mock_pdf):
         import json
         mock_pdf.return_value.pages = [MagicMock(extract_text=lambda: "Some text")]
@@ -1466,9 +1466,9 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(len(data["qualification_name"]), 200)
         self.assertEqual(len(data["institution"]), 200)
 
-    @patch("apps.accounts.views.time.sleep")
+    @patch("apps.common.gemini_client.time.sleep")
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_primary_503_fallback_succeeds(self, mock_client_class, mock_pdf, mock_sleep):
         mock_pdf.return_value.pages = [MagicMock(extract_text=lambda: "Some text")]
         self._attach_resume(self.student_user)
@@ -1492,9 +1492,9 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(second_call_kwargs["model"], "fallback-model")
         mock_sleep.assert_called_once_with(2)
 
-    @patch("apps.accounts.views.time.sleep")
+    @patch("apps.common.gemini_client.time.sleep")
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_httpx_read_timeout_primary_fallback_succeeds(self, mock_client_class, mock_pdf, mock_sleep):
         mock_pdf.return_value.pages = [MagicMock(extract_text=lambda: "Some text")]
         self._attach_resume(self.student_user)
@@ -1518,9 +1518,9 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(second_call_kwargs["model"], "fallback-model")
         mock_sleep.assert_called_once_with(2)
 
-    @patch("apps.accounts.views.time.sleep")
+    @patch("apps.common.gemini_client.time.sleep")
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_both_models_503_returns_503_busy(self, mock_client_class, mock_pdf, mock_sleep):
         mock_pdf.return_value.pages = [MagicMock(extract_text=lambda: "Some text")]
         self._attach_resume(self.student_user)
@@ -1541,7 +1541,7 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(mock_client_inst.models.generate_content.call_count, 2)
 
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_gemini_404_error_returns_502_not_retried(self, mock_client_class, mock_pdf):
         mock_pdf.return_value.pages = [MagicMock(extract_text=lambda: "Some text")]
         self._attach_resume(self.student_user)
@@ -1571,7 +1571,7 @@ class ResumeAIParsingTestCase(TestCase):
         self.client.force_authenticate(user=self.student_user)
 
         with patch("apps.accounts.throttling.settings.TESTING", False):
-            with patch("google.genai.Client") as mock_client_class:
+            with patch("apps.common.gemini_client.genai.Client") as mock_client_class:
                 mock_resp = MagicMock()
                 mock_resp.text = '{"skills": ["Python"], "qualification_name": "", "institution": ""}'
                 mock_inst = MagicMock()
@@ -1586,7 +1586,7 @@ class ResumeAIParsingTestCase(TestCase):
                     res4 = self.client.post(self.parse_url)
                     self.assertEqual(res4.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_real_docx_extraction_with_mocked_gemini(self, mock_client_class):
         import docx
         import io
@@ -1620,7 +1620,7 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertIn("Python Developer with B.Tech in Computer Science at Stanford University", gen_prompt)
 
     @patch("pypdf.PdfReader")
-    @patch("google.genai.Client")
+    @patch("apps.common.gemini_client.genai.Client")
     def test_successful_resume_parse_does_not_modify_database(self, mock_client_class, mock_pdf_reader):
         mock_page = MagicMock()
         mock_page.extract_text.return_value = "Python Developer with B.Tech at Stanford"
