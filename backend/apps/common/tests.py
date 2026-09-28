@@ -123,3 +123,25 @@ class GeminiClientTestCase(TestCase):
         self.assertEqual(call_contents[0].role, "user")
         self.assertEqual(call_contents[1].role, "model")
         self.assertEqual(call_contents[2].role, "user")
+
+    @patch("apps.common.gemini_client.genai.Client")
+    def test_generate_text_config_kwargs_passed_to_sdk(self, mock_client_class):
+        success_resp = MagicMock(text="Config test output")
+        mock_inst = MagicMock()
+        mock_inst.models.generate_content.return_value = success_resp
+        mock_client_class.return_value = mock_inst
+
+        with override_settings(GOOGLE_API_KEY="test_key_123"):
+            result = generate_text(
+                "Test prompt",
+                system_instruction="System prompt",
+                max_output_tokens=400,
+                temperature=0.2,
+            )
+
+        self.assertEqual(result, "Config test output")
+        config_arg = mock_inst.models.generate_content.call_args.kwargs["config"]
+        self.assertEqual(config_arg.system_instruction, "System prompt")
+        self.assertEqual(config_arg.max_output_tokens, 400)
+        self.assertEqual(config_arg.temperature, 0.2)
+

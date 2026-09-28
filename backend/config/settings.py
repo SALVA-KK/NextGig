@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.opportunities",
     "apps.notifications",
+    "apps.assistant",
     "django_celery_beat",
 ]
 
@@ -184,6 +185,8 @@ REST_FRAMEWORK = {
         "resume_upload_sustained": "30/hour",
         "resume_parse_burst": "3/minute",
         "resume_parse_sustained": "15/hour",
+        "assistant_burst": "5/minute",
+        "assistant_sustained": "40/hour",
         "admin_write": "30/hour",
     },
 }
