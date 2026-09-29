@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import DashboardHeader from './DashboardHeader';
+import AssistantWidget from '../assistant/AssistantWidget';
 
 /**
  * DashboardLayout - Master layout wrapper for Student Workspace.
@@ -26,6 +27,8 @@ export default function DashboardLayout({ children, activeTab, setActiveTab }) {
         />
         <main className="dashboard-content flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
       </div>
+
+      <AssistantWidget />
     </div>
   );
 }
