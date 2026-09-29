@@ -12,6 +12,7 @@ export default function ResumeCard({ onProfileUpdate, currentProfile }) {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [viewLoading, setViewLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [message, setMessage] = useState(null);
 
@@ -212,6 +213,28 @@ export default function ResumeCard({ onProfileUpdate, currentProfile }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleView = async () => {
+    setMessage(null);
+    setViewLoading(true);
+
+    try {
+      const response = await resumeService.downloadResumeBlob();
+      const mimeType = response.headers['content-type'] || resume?.mime_type || 'application/pdf';
+      const blob = new Blob([response.data], { type: mimeType });
+      const blobUrl = window.URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+    } catch (err) {
+      console.error('[ResumeCard] handleView error:', err);
+      setMessage({
+        type: 'error',
+        text: err.message || 'Failed to view resume file.',
+      });
+    } finally {
+      setViewLoading(false);
+    }
+  };
+
   const handleDownload = async () => {
     setMessage(null);
     setDownloading(true);
@@ -223,7 +246,7 @@ export default function ResumeCard({ onProfileUpdate, currentProfile }) {
       });
       const blobUrl = window.URL.createObjectURL(blob);
 
-      // Create temporary anchor tag to download/open file
+      // Create temporary anchor tag to download file
       const link = document.createElement('a');
       link.href = blobUrl;
       link.setAttribute('download', resume?.original_filename || 'resume.pdf');
@@ -366,10 +389,19 @@ export default function ResumeCard({ onProfileUpdate, currentProfile }) {
               <button
                 type="button"
                 className="btn-secondary-sm"
-                onClick={handleDownload}
-                disabled={parsing || downloading || deleting}
+                onClick={handleView}
+                disabled={parsing || downloading || viewLoading || deleting}
               >
-                {downloading ? 'Opening File...' : 'View / Download'}
+                {viewLoading ? 'Opening...' : 'View'}
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                onClick={handleDownload}
+                disabled={parsing || downloading || viewLoading || deleting}
+              >
+                {downloading ? 'Downloading...' : 'Download'}
               </button>
 
               <button

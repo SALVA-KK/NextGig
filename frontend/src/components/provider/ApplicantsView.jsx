@@ -10,11 +10,16 @@ function ApplicantAvatar({ src, name, size = 'w-12 h-12' }) {
   const [imgError, setImgError] = useState(false);
   const initial = (name || 'Applicant').charAt(0).toUpperCase();
 
+  let avatarSrc = src;
+  if (src && typeof src === 'string' && src.startsWith('/')) {
+    avatarSrc = `http://127.0.0.1:8000${src}`;
+  }
+
   return (
     <div className={`${size} rounded-full overflow-hidden border-2 border-slate-200 bg-indigo-50 flex items-center justify-center flex-shrink-0 shadow-xs`}>
-      {src && !imgError ? (
+      {avatarSrc && !imgError ? (
         <img
-          src={src}
+          src={avatarSrc}
           alt={name}
           className="w-full h-full object-cover"
           onError={() => setImgError(true)}

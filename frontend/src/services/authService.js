@@ -139,7 +139,7 @@ api.interceptors.response.use(
  * Helper to extract human-readable error text from DRF error response payloads.
  * Handles strings, arrays, field error objects ({ email: [...], password: [...] }), and nested errors.
  */
-const formatErrorResponse = (data, defaultFallback = 'Something went wrong. Please try again.', status = null) => {
+export const formatErrorResponse = (data, defaultFallback = 'Something went wrong. Please try again.', status = null) => {
   if (status === 401) {
     return 'Your session has expired. Please log in again.';
   }

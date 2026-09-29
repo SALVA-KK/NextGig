@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
 import InviteCard from '../dashboard/InviteCard';
 import ResumeCard from './ResumeCard';
 import { STUDENT_FIELD_CONFIG, PROVIDER_FIELD_CONFIG } from '../../config/profileFieldConfigs';
 
 export default function ProfileOverviewTab({ profile, role = 'student', onEditClick, onProfileUpdate }) {
+  const [expandedTags, setExpandedTags] = useState({});
   const configs = role === 'provider' ? PROVIDER_FIELD_CONFIG : STUDENT_FIELD_CONFIG;
   const overviewConfigs = configs.filter((c) => c.tab === 'overview');
 
@@ -17,6 +18,8 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
     return true;
   });
 
+  const hasSocialLinks = profile?.social_links && Object.keys(profile.social_links).length > 0;
+
   const formatValue = (field, val) => {
     if (!val) return null;
     if (field.type === 'select' && field.options) {
@@ -26,7 +29,7 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
     return String(val);
   };
 
-  if (populatedConfigs.length === 0) {
+  if (populatedConfigs.length === 0 && !hasSocialLinks) {
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm space-y-4">
@@ -59,7 +62,6 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
   const textareas = populatedConfigs.filter((c) => c.type === 'textarea');
   const tagsFields = populatedConfigs.filter((c) => c.type === 'tags');
   const urlFields = overviewConfigs.filter((c) => c.type === 'url');
-  const socialFields = populatedConfigs.filter((c) => c.type === 'social');
   const detailFields = populatedConfigs.filter((c) => c.type !== 'textarea' && c.type !== 'tags' && c.type !== 'social' && c.type !== 'url');
 
   return (
@@ -104,6 +106,8 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
             const val = profile[field.key];
             const tags = Array.isArray(val) ? val : [];
             const isSkills = field.key === 'skills';
+            const isExpanded = !!expandedTags[field.key];
+            const visibleTags = isExpanded ? tags : tags.slice(0, 12);
 
             return (
               <div
@@ -123,7 +127,7 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
                   </span>
                 </h3>
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {tags.map((tag, idx) => (
+                  {visibleTags.map((tag, idx) => (
                     <span
                       key={idx}
                       className={
@@ -136,6 +140,20 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
                     </span>
                   ))}
                 </div>
+                {tags.length > 12 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedTags((prev) => ({
+                        ...prev,
+                        [field.key]: !prev[field.key],
+                      }))
+                    }
+                    className="mt-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors block"
+                  >
+                    {isExpanded ? 'Show less' : `Show all (${tags.length})`}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -229,17 +247,14 @@ export default function ProfileOverviewTab({ profile, role = 'student', onEditCl
       )}
 
       {/* 6. Social Links */}
-      {socialFields.map((field) => (
-        <div
-          key={field.key}
-          className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3"
-        >
+      {hasSocialLinks && (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3">
           <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-            {field.label}
+            Social Profiles & Links
           </h3>
-          <SocialLinksDisplay socialLinks={profile[field.key]} />
+          <SocialLinksDisplay socialLinks={profile.social_links} />
         </div>
-      ))}
+      )}
 
       {/* 7. Invite Friends & Peers Section */}
       <div className="space-y-3 pt-2">

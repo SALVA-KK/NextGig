@@ -146,7 +146,25 @@ export default function DashboardHeader({
             aria-expanded={dropdownOpen}
             aria-label="User Account Menu"
           >
-            <div className="user-avatar">{initial}</div>
+            {user?.profile_picture ? (
+              <img
+                src={user.profile_picture}
+                alt={displayName}
+                className="user-avatar object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  if (e.currentTarget.nextSibling) {
+                    e.currentTarget.nextSibling.style.display = 'flex';
+                  }
+                }}
+              />
+            ) : null}
+            <div
+              className="user-avatar"
+              style={{ display: user?.profile_picture ? 'none' : 'flex' }}
+            >
+              {initial}
+            </div>
             <span className="user-name-text">{displayName}</span>
             <svg 
               className={`dropdown-caret ${dropdownOpen ? 'rotated' : ''}`} 
