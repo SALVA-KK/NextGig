@@ -644,6 +644,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             "show_phone",
             "show_whatsapp",
             "social_links",
+            "is_discoverable",
             "created_at",
             "updated_at",
         )
@@ -701,6 +702,7 @@ class ProviderProfileSerializer(serializers.ModelSerializer):
             "city",
             "social_links",
             "is_verified",
+            "is_discoverable",
             "created_at",
             "updated_at",
         )

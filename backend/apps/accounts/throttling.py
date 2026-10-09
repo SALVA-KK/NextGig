@@ -192,4 +192,65 @@ class ResumeParseSustainedRateThrottle(SimpleRateThrottle):
 ResumeParseRateThrottle = ResumeParseBurstRateThrottle
 
 
+class PeopleSearchBurstRateThrottle(SimpleRateThrottle):
+    """
+    Burst rate throttle for people search endpoint.
+    Limits requests to max 30 per minute per user.
+    """
+
+    scope = "people_search_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
+
+class PeopleSearchSustainedRateThrottle(SimpleRateThrottle):
+    """
+    Sustained rate throttle for people search endpoint.
+    Limits requests to max 300 per hour per user.
+    """
+
+    scope = "people_search_sustained"
+    rate = "300/hour"
+
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
+
+class PeopleDetailRateThrottle(SimpleRateThrottle):
+    """
+    Rate throttle for people detail endpoint.
+    Limits requests to max 60 per minute per user.
+    """
+
+    scope = "people_detail"
+    rate = "60/minute"
+
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
+
+
 

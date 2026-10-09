@@ -11,6 +11,7 @@ from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
 from django.core.files.storage import default_storage
 from django.db import transaction
+from django.db.models import Q
 from django.http import FileResponse
 from django.utils import timezone
 from django.utils.encoding import force_str
@@ -36,6 +37,12 @@ from .models import (
     StudentProfile,
 )
 from .permissions import IsAdminRole, IsStudentRole
+from .public_serializers import (
+    PublicProviderDetailSerializer,
+    PublicProviderListSerializer,
+    PublicStudentDetailSerializer,
+    PublicStudentListSerializer,
+)
 from .serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
@@ -55,6 +62,9 @@ from .serializers import (
     VerifyOTPSerializer,
 )
 from .throttling import (
+    PeopleDetailRateThrottle,
+    PeopleSearchBurstRateThrottle,
+    PeopleSearchSustainedRateThrottle,
     ResumeParseBurstRateThrottle,
     ResumeParseRateThrottle,
     ResumeParseSustainedRateThrottle,
@@ -1659,6 +1669,166 @@ class ResumeParseView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class PeopleSearchView(generics.ListAPIView):
+    """
+    API endpoint for searching discoverable student and provider profiles.
+    Requires authentication and verified status.
+    Enforces visibility filtering, pagination, deterministic ordering, and layered rate throttling.
+    """
+
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    throttle_classes = [PeopleSearchBurstRateThrottle, PeopleSearchSustainedRateThrottle]
+
+    @extend_schema(
+        summary="Search public people profiles",
+        description="Paginated search across discoverable student and provider profiles.",
+        parameters=[
+            OpenApiParameter("q", str, description="Filter by full name, profession, or organization name"),
+            OpenApiParameter("city", str, description="Filter by city (icontains)"),
+            OpenApiParameter("skills", str, description="Filter by skills (comma-separated, case-insensitive)"),
+            OpenApiParameter("role", str, description="Role filter: 'student' or 'provider' (default: both)"),
+        ],
+        responses={200: PublicStudentListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        q = request.query_params.get("q", "").strip()
+        city = request.query_params.get("city", "").strip()
+        skills_param = request.query_params.get("skills", "").strip()
+        role = request.query_params.get("role", "").strip().lower()
+
+        if len(q) > 100:
+            return Response(
+                {"detail": "Search query 'q' cannot exceed 100 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        skill_list = []
+        if skills_param:
+            skill_list = [s.strip() for s in skills_param.split(",") if s.strip()]
+            if len(skill_list) > 10:
+                return Response(
+                    {"detail": "Cannot specify more than 10 skills in query."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if any(len(s) < 2 for s in skill_list):
+                return Response(
+                    {"detail": "Skill search terms must be at least 2 characters long."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        qs = CustomUser.objects.filter(
+            is_active=True,
+            is_staff=False,
+            is_verified=True,
+        ).exclude(
+            role=CustomUser.Role.ADMIN
+        ).exclude(
+            id=request.user.id
+        ).select_related(
+            "student_profile",
+            "provider_profile",
+        )
+
+        discoverable_q = (
+            Q(role=CustomUser.Role.STUDENT, student_profile__isnull=False, student_profile__is_discoverable=True) |
+            Q(role=CustomUser.Role.PROVIDER, provider_profile__isnull=False, provider_profile__is_discoverable=True)
+        )
+        qs = qs.filter(discoverable_q)
+
+        if role == CustomUser.Role.STUDENT:
+            qs = qs.filter(role=CustomUser.Role.STUDENT)
+        elif role == CustomUser.Role.PROVIDER:
+            qs = qs.filter(role=CustomUser.Role.PROVIDER)
+
+        if q:
+            q_filter = (
+                Q(role=CustomUser.Role.STUDENT) & (Q(full_name__icontains=q) | Q(student_profile__profession__icontains=q))
+            ) | (
+                Q(role=CustomUser.Role.PROVIDER) & Q(provider_profile__organization_name__icontains=q)
+            )
+            qs = qs.filter(q_filter)
+
+        if city:
+            qs = qs.filter(
+                Q(student_profile__city__icontains=city) |
+                Q(provider_profile__city__icontains=city)
+            )
+
+        if skill_list:
+            skills_q = Q()
+            for skill in skill_list:
+                skills_q |= Q(student_profile__skills__icontains=skill)
+            qs = qs.filter(skills_q)
+
+        qs = qs.order_by("-created_at", "id")
+
+        page = self.paginate_queryset(qs)
+        results = page if page is not None else qs
+
+        serialized_data = []
+        for user in results:
+            if user.role == CustomUser.Role.STUDENT:
+                serialized_data.append(PublicStudentListSerializer(user, context={"request": request}).data)
+            elif user.role == CustomUser.Role.PROVIDER:
+                serialized_data.append(PublicProviderListSerializer(user, context={"request": request}).data)
+
+        if page is not None:
+            return self.get_paginated_response(serialized_data)
+        return Response(serialized_data)
+
+
+class PeopleDetailView(APIView):
+    """
+    API endpoint for retrieving public profile details by user_id.
+    Requires authentication and verified status.
+    Allows users to view their own profile detail even if is_discoverable=False.
+    Other users hidden by is_discoverable=False return 404.
+    Returns 404 for inactive, staff, admin, missing profile, or non-discoverable users.
+    """
+
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    throttle_classes = [PeopleDetailRateThrottle]
+
+    @extend_schema(
+        summary="Get public profile detail",
+        description="Retrieve public profile details of a discoverable user by user ID.",
+        responses={200: PublicStudentDetailSerializer, 404: None},
+    )
+    def get(self, request, user_id, *args, **kwargs):
+        qs = CustomUser.objects.filter(
+            is_active=True,
+            is_staff=False,
+            is_verified=True,
+        ).exclude(
+            role=CustomUser.Role.ADMIN
+        ).select_related(
+            "student_profile",
+            "provider_profile",
+        )
+
+        if user_id == request.user.id:
+            discoverable_q = (
+                Q(role=CustomUser.Role.STUDENT, student_profile__isnull=False) |
+                Q(role=CustomUser.Role.PROVIDER, provider_profile__isnull=False)
+            )
+        else:
+            discoverable_q = (
+                Q(role=CustomUser.Role.STUDENT, student_profile__isnull=False, student_profile__is_discoverable=True) |
+                Q(role=CustomUser.Role.PROVIDER, provider_profile__isnull=False, provider_profile__is_discoverable=True)
+            )
+
+        user = generics.get_object_or_404(qs.filter(discoverable_q), id=user_id)
+
+        if user.role == CustomUser.Role.STUDENT:
+            serializer = PublicStudentDetailSerializer(user, context={"request": request})
+        elif user.role == CustomUser.Role.PROVIDER:
+            serializer = PublicProviderDetailSerializer(user, context={"request": request})
+        else:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 

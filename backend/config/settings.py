@@ -188,6 +188,9 @@ REST_FRAMEWORK = {
         "assistant_burst": "5/minute",
         "assistant_sustained": "40/hour",
         "admin_write": "30/hour",
+        "people_search_burst": "30/minute",
+        "people_search_sustained": "300/hour",
+        "people_detail": "60/minute",
     },
 }
 

@@ -14,6 +14,8 @@ from .views import (
     InvitationDetailView,
     LoginView,
     LogoutView,
+    PeopleDetailView,
+    PeopleSearchView,
     PhoneLoginRequestOTPView,
     PhoneLoginVerifyOTPView,
     ProviderProfileView,
@@ -127,6 +129,16 @@ urlpatterns = [
         "provider-profile/",
         ProviderProfileView.as_view(),
         name="provider-profile",
+    ),
+    path(
+        "people/",
+        PeopleSearchView.as_view(),
+        name="people-search",
+    ),
+    path(
+        "people/<int:user_id>/",
+        PeopleDetailView.as_view(),
+        name="people-detail",
     ),
 
     path(

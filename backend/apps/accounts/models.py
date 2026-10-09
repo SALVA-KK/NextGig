@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -314,6 +315,7 @@ class StudentProfile(models.Model):
         _("show WhatsApp number"), default=False
     )
     social_links = models.JSONField(_("social links"), default=dict, blank=True)
+    is_discoverable = models.BooleanField(_("is discoverable"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -322,6 +324,9 @@ class StudentProfile(models.Model):
         verbose_name = _("student profile")
         verbose_name_plural = _("student profiles")
         ordering = ["-created_at"]
+        indexes = [
+            GinIndex(fields=["skills"], name="student_skills_gin"),
+        ]
 
     def __str__(self):
         return f"StudentProfile of {self.user.email}"
@@ -378,6 +383,7 @@ class ProviderProfile(models.Model):
         default=False,
         help_text=_("Admin verification flag for provider organization."),
     )
+    is_discoverable = models.BooleanField(_("is discoverable"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

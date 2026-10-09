@@ -1662,6 +1662,431 @@ class ResumeAIParsingTestCase(TestCase):
         self.assertEqual(self.student_profile.institution, inst_before)
 
 
+@override_settings(ALLOWED_HOSTS=["*"])
+class PeopleSearchPublicProfilesTestCase(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client = APIClient()
+
+        # Requesting User (Student, verified)
+        self.req_user = CustomUser.objects.create_user(
+            email="req_student@example.com",
+            full_name="Requesting Student",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.req_profile, _ = StudentProfile.objects.get_or_create(user=self.req_user)
+        self.req_profile.city = "New York"
+        self.req_profile.skills = ["Python", "Django"]
+        self.req_profile.save()
+
+        # Target Student 1 (discoverable, show_phone=False)
+        self.student1 = CustomUser.objects.create_user(
+            email="student1@example.com",
+            full_name="Alice Student",
+            password="Password123!",
+            phone_number="+12025550101",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.student1_profile, _ = StudentProfile.objects.get_or_create(user=self.student1)
+        self.student1_profile.profession = "Backend Developer"
+        self.student1_profile.qualification_name = "B.S. Computer Science"
+        self.student1_profile.institution = "MIT"
+        self.student1_profile.skills = ["Python", "Django", "PostgreSQL"]
+        self.student1_profile.city = "Boston"
+        self.student1_profile.availability = "Full-time"
+        self.student1_profile.bio = "Passionate Python dev"
+        self.student1_profile.whatsapp_number = "+12025550199"
+        self.student1_profile.show_phone = False
+        self.student1_profile.show_whatsapp = False
+        self.student1_profile.is_discoverable = True
+        self.student1_profile.save()
+
+        # Target Student 2 (discoverable, show_phone=True)
+        self.student2 = CustomUser.objects.create_user(
+            email="student2@example.com",
+            full_name="Bob Student",
+            password="Password123!",
+            phone_number="+12025550102",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.student2_profile, _ = StudentProfile.objects.get_or_create(user=self.student2)
+        self.student2_profile.profession = "Frontend Developer"
+        self.student2_profile.skills = ["React", "JavaScript", "CSS"]
+        self.student2_profile.city = "Boston"
+        self.student2_profile.whatsapp_number = "+12025550188"
+        self.student2_profile.show_phone = True
+        self.student2_profile.show_whatsapp = True
+        self.student2_profile.is_discoverable = True
+        self.student2_profile.save()
+
+        # Target Provider 1 (discoverable, verified)
+        self.provider1 = CustomUser.objects.create_user(
+            email="provider1@example.com",
+            full_name="John ProviderUserFullName",
+            password="Password123!",
+            role=CustomUser.Role.PROVIDER,
+            is_verified=True,
+        )
+        self.provider1_profile, _ = ProviderProfile.objects.get_or_create(user=self.provider1)
+        self.provider1_profile.organization_name = "Acme Technologies"
+        self.provider1_profile.organization_type = ProviderProfile.OrganizationType.COMPANY
+        self.provider1_profile.description = "Top software engineering agency"
+        self.provider1_profile.contact_person = "John Contact"
+        self.provider1_profile.address = "123 Main Street"
+        self.provider1_profile.city = "San Francisco"
+        self.provider1_profile.is_verified = True
+        self.provider1_profile.show_phone = False
+        self.provider1_profile.show_whatsapp = False
+        self.provider1_profile.is_discoverable = True
+        self.provider1_profile.save()
+
+        # Target Hidden Student (is_discoverable=False)
+        self.hidden_student = CustomUser.objects.create_user(
+            email="hidden_student@example.com",
+            full_name="Hidden Student",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_verified=True,
+        )
+        self.hidden_student_profile, _ = StudentProfile.objects.get_or_create(user=self.hidden_student)
+        self.hidden_student_profile.is_discoverable = False
+        self.hidden_student_profile.save()
+
+        # Inactive User
+        self.inactive_user = CustomUser.objects.create_user(
+            email="inactive@example.com",
+            full_name="Inactive User",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_active=False,
+            is_verified=True,
+        )
+
+        # Staff User
+        self.staff_user = CustomUser.objects.create_user(
+            email="staff@example.com",
+            full_name="Staff User",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_staff=True,
+            is_verified=True,
+        )
+
+        # Admin User
+        self.admin_user = CustomUser.objects.create_user(
+            email="admin@example.com",
+            full_name="Admin User",
+            password="Password123!",
+            role=CustomUser.Role.ADMIN,
+            is_verified=True,
+        )
+
+        # Unverified User
+        self.unverified_user = CustomUser.objects.create_user(
+            email="unverified@example.com",
+            full_name="Unverified User",
+            password="Password123!",
+            role=CustomUser.Role.STUDENT,
+            is_verified=False,
+        )
+
+    def test_anonymous_and_unverified_access(self):
+        # Anonymous search -> 401
+        res = self.client.get("/api/accounts/people/")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Anonymous detail -> 401
+        res = self.client.get(f"/api/accounts/people/{self.student1.id}/")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Unverified search -> 403
+        self.client.force_authenticate(user=self.unverified_user)
+        res = self.client.get("/api/accounts/people/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Unverified detail -> 403
+        res = self.client.get(f"/api/accounts/people/{self.student1.id}/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_provider_q_search_does_not_match_user_full_name(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Searching for provider user's full_name ("ProviderUserFullName") MUST NOT match provider
+        res_no_match = self.client.get("/api/accounts/people/?q=ProviderUserFullName")
+        self.assertEqual(res_no_match.status_code, status.HTTP_200_OK)
+        user_ids = [item["user_id"] for item in res_no_match.json()["results"]]
+        self.assertNotIn(self.provider1.id, user_ids)
+
+        # Searching for organization_name ("Acme Technologies") MUST match provider
+        res_match = self.client.get("/api/accounts/people/?q=Acme Technologies")
+        self.assertEqual(res_match.status_code, status.HTTP_200_OK)
+        user_ids_match = [item["user_id"] for item in res_match.json()["results"]]
+        self.assertIn(self.provider1.id, user_ids_match)
+
+    def test_skills_filter_case_insensitive(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # "python" in lowercase finds Student1 with skills=["Python", "Django", "PostgreSQL"]
+        res_lower = self.client.get("/api/accounts/people/?skills=python")
+        self.assertEqual(res_lower.status_code, status.HTTP_200_OK)
+        results = res_lower.json()["results"]
+        user_ids = [item["user_id"] for item in results]
+        self.assertIn(self.student1.id, user_ids)
+
+    def test_skills_filter_negative_case(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # "xyzzy" matching no student skills returns empty list []
+        res = self.client.get("/api/accounts/people/?skills=xyzzy")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.json()["results"], [])
+
+    def test_skills_filter_or_semantics(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Searching for two skills where only one matches ("python,nonexistentskill") still returns Student1 (OR semantics)
+        res = self.client.get("/api/accounts/people/?skills=python,nonexistentskill")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.json()["results"]
+        user_ids = [item["user_id"] for item in results]
+        self.assertIn(self.student1.id, user_ids)
+
+    def test_skills_filter_one_character_rejected(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # 1-character skill search term ("a") returns 400 Bad Request
+        res = self.client.get("/api/accounts/people/?skills=a")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.json()["detail"], "Skill search terms must be at least 2 characters long.")
+
+    def test_own_profile_detail_returns_200_and_absent_from_search(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Requesting user IS ABSENT from search results list
+        res_search = self.client.get("/api/accounts/people/")
+        self.assertEqual(res_search.status_code, status.HTTP_200_OK)
+        search_user_ids = [item["user_id"] for item in res_search.json()["results"]]
+        self.assertNotIn(self.req_user.id, search_user_ids)
+
+        # Requesting user CAN view their OWN profile detail -> 200 OK
+        res_detail = self.client.get(f"/api/accounts/people/{self.req_user.id}/")
+        self.assertEqual(res_detail.status_code, status.HTTP_200_OK)
+        data = res_detail.json()
+        self.assertEqual(data["user_id"], self.req_user.id)
+        self.assertEqual(data["full_name"], "Requesting Student")
+        self.assertEqual(data["display_name"], "Requesting Student")
+
+    def test_self_detail_allowed_when_hidden_and_other_hidden_returns_404(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Hide requesting user's profile
+        self.req_profile.is_discoverable = False
+        self.req_profile.save()
+
+        # Own detail returns 200 OK even when is_discoverable=False
+        res_own = self.client.get(f"/api/accounts/people/{self.req_user.id}/")
+        self.assertEqual(res_own.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_own.json()["user_id"], self.req_user.id)
+
+        # Other hidden user's detail returns 404
+        res_other = self.client.get(f"/api/accounts/people/{self.hidden_student.id}/")
+        self.assertEqual(res_other.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_over_length_q_and_too_many_skills_rejected(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # q > 100 chars -> 400
+        long_q = "a" * 101
+        res_q = self.client.get(f"/api/accounts/people/?q={long_q}")
+        self.assertEqual(res_q.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 11 skills -> 400
+        many_skills = ",".join([f"skill{i}" for i in range(11)])
+        res_skills = self.client.get(f"/api/accounts/people/?skills={many_skills}")
+        self.assertEqual(res_skills.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_role_and_city_filters(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Filter by role='provider'
+        res_role = self.client.get("/api/accounts/people/?role=provider")
+        self.assertEqual(res_role.status_code, status.HTTP_200_OK)
+        results_role = res_role.json()["results"]
+        self.assertEqual(len(results_role), 1)
+        self.assertEqual(results_role[0]["role"], "provider")
+
+        # Filter by city='San Francisco'
+        res_city = self.client.get("/api/accounts/people/?city=San Francisco")
+        self.assertEqual(res_city.status_code, status.HTTP_200_OK)
+        results_city = res_city.json()["results"]
+        self.assertEqual(len(results_city), 1)
+        self.assertEqual(results_city[0]["organization_name"], "Acme Technologies")
+        self.assertEqual(results_city[0]["display_name"], "Acme Technologies")
+
+    def test_pagination_across_pages_and_stable_ordering(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Create 25 matching discoverable student users to ensure >20 total matches
+        pagination_users = []
+        for i in range(25):
+            u = CustomUser.objects.create_user(
+                email=f"page_user_{i}@example.com",
+                full_name=f"Page Student {i:02d}",
+                password="Password123!",
+                role=CustomUser.Role.STUDENT,
+                is_verified=True,
+            )
+            sp, _ = StudentProfile.objects.get_or_create(user=u)
+            sp.city = "PaginatedCity"
+            sp.is_discoverable = True
+            sp.save()
+            pagination_users.append(u)
+
+        # Fetch page 1
+        res_p1 = self.client.get("/api/accounts/people/?city=PaginatedCity&page=1")
+        self.assertEqual(res_p1.status_code, status.HTTP_200_OK)
+        data1 = res_p1.json()
+        self.assertEqual(data1["count"], 25)
+        self.assertEqual(len(data1["results"]), 20)
+
+        # Fetch page 2
+        res_p2 = self.client.get("/api/accounts/people/?city=PaginatedCity&page=2")
+        self.assertEqual(res_p2.status_code, status.HTTP_200_OK)
+        data2 = res_p2.json()
+        self.assertEqual(data2["count"], 25)
+        self.assertEqual(len(data2["results"]), 5)
+
+        # Assert combined IDs are unique across pages and total count matches 25
+        ids_p1 = [item["user_id"] for item in data1["results"]]
+        ids_p2 = [item["user_id"] for item in data2["results"]]
+        all_ids = ids_p1 + ids_p2
+
+        self.assertEqual(len(all_ids), 25)
+        self.assertEqual(len(set(all_ids)), 25)
+
+        # Verify ordering is stable across pages (all_ids match DB ordering)
+        db_ordered_ids = list(
+            CustomUser.objects.filter(id__in=[u.id for u in pagination_users])
+            .order_by("-created_at", "id")
+            .values_list("id", flat=True)
+        )
+        self.assertEqual(all_ids, db_ordered_ids)
+
+    def test_assert_num_queries_bound_check_with_10_plus_users(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Create 12 discoverable users
+        for i in range(12):
+            u = CustomUser.objects.create_user(
+                email=f"bound_user_{i}@example.com",
+                full_name=f"Bound Student {i}",
+                password="Password123!",
+                role=CustomUser.Role.STUDENT,
+                is_verified=True,
+            )
+            sp, _ = StudentProfile.objects.get_or_create(user=u)
+            sp.is_discoverable = True
+            sp.save()
+
+        # Verify pagination + select_related executes bounded queries (2 queries total)
+        with self.assertNumQueries(2):
+            res = self.client.get("/api/accounts/people/")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_throttling_returns_429_on_burst(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.client.force_authenticate(user=self.req_user)
+
+        # Make 30 requests to search endpoint (burst limit 30/minute)
+        for _ in range(30):
+            res = self.client.get("/api/accounts/people/")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # 31st request triggers HTTP 429
+        res_search_throttled = self.client.get("/api/accounts/people/")
+        self.assertEqual(res_search_throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Check detail endpoint throttling (60/minute)
+        cache.clear()
+        for _ in range(60):
+            res_d = self.client.get(f"/api/accounts/people/{self.student1.id}/")
+            self.assertEqual(res_d.status_code, status.HTTP_200_OK)
+
+        res_detail_throttled = self.client.get(f"/api/accounts/people/{self.student1.id}/")
+        self.assertEqual(res_detail_throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_provider_detail_exposes_is_verified_and_hides_address_and_contact_person(self):
+        self.client.force_authenticate(user=self.req_user)
+        res = self.client.get(f"/api/accounts/people/{self.provider1.id}/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertTrue(data.get("is_verified"))
+        self.assertEqual(data.get("display_name"), "Acme Technologies")
+        self.assertNotIn("address", data)
+        self.assertNotIn("contact_person", data)
+
+    def test_search_never_returns_forbidden_fields(self):
+        self.client.force_authenticate(user=self.req_user)
+        res = self.client.get("/api/accounts/people/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = res.json()["results"]
+        self.assertTrue(len(items) > 0)
+
+        forbidden_keys = {"email", "address", "contact_person", "show_phone", "show_whatsapp", "is_discoverable"}
+        for item in items:
+            for key in forbidden_keys:
+                self.assertNotIn(key, item, f"Forbidden key '{key}' leaked in list response item")
+
+    def test_phone_and_whatsapp_gating(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        # Student1 has show_phone=False and show_whatsapp=False -> None
+        res_hidden = self.client.get(f"/api/accounts/people/{self.student1.id}/")
+        self.assertEqual(res_hidden.status_code, status.HTTP_200_OK)
+        data_hidden = res_hidden.json()
+        self.assertIsNone(data_hidden.get("phone_number"))
+        self.assertIsNone(data_hidden.get("whatsapp_number"))
+
+        # Student2 has show_phone=True and show_whatsapp=True -> present
+        res_visible = self.client.get(f"/api/accounts/people/{self.student2.id}/")
+        self.assertEqual(res_visible.status_code, status.HTTP_200_OK)
+        data_visible = res_visible.json()
+        self.assertEqual(data_visible.get("phone_number"), "+12025550102")
+        self.assertEqual(data_visible.get("whatsapp_number"), "+12025550188")
+
+    def test_is_discoverable_false_absent_and_404(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        res = self.client.get("/api/accounts/people/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        user_ids = [item["user_id"] for item in res.json()["results"]]
+        self.assertNotIn(self.hidden_student.id, user_ids)
+
+        detail_res = self.client.get(f"/api/accounts/people/{self.hidden_student.id}/")
+        self.assertEqual(detail_res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_inactive_staff_and_admin_users_absent_and_404(self):
+        self.client.force_authenticate(user=self.req_user)
+
+        res = self.client.get("/api/accounts/people/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        user_ids = [item["user_id"] for item in res.json()["results"]]
+        self.assertNotIn(self.inactive_user.id, user_ids)
+        self.assertNotIn(self.staff_user.id, user_ids)
+        self.assertNotIn(self.admin_user.id, user_ids)
+
+        self.assertEqual(self.client.get(f"/api/accounts/people/{self.inactive_user.id}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(f"/api/accounts/people/{self.staff_user.id}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(f"/api/accounts/people/{self.admin_user.id}/").status_code, status.HTTP_404_NOT_FOUND)
+
+
+
 
 
 
