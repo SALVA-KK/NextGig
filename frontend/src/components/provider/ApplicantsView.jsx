@@ -6,13 +6,19 @@ import PaginationControl from '../common/PaginationControl';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
 import EmptyState from '../common/EmptyState';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+if (!API_BASE_URL) {
+  console.error('[ApplicantAvatar] FATAL ERROR: VITE_API_BASE_URL is not defined! Please define VITE_API_BASE_URL in your frontend/.env.local file.');
+}
+const BACKEND_HOST = API_BASE_URL ? API_BASE_URL.replace(/\/api\/?$/, '') : '';
+
 function ApplicantAvatar({ src, name, size = 'w-12 h-12' }) {
   const [imgError, setImgError] = useState(false);
   const initial = (name || 'Applicant').charAt(0).toUpperCase();
 
   let avatarSrc = src;
   if (src && typeof src === 'string' && src.startsWith('/')) {
-    avatarSrc = `http://127.0.0.1:8000${src}`;
+    avatarSrc = `${BACKEND_HOST}${src}`;
   }
 
   return (

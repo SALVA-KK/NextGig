@@ -92,9 +92,15 @@ export default function OpportunityCard({ opportunity, isSaved, onSaveToggle, on
       <div className="opp-card-body">
         <h3 className="opp-card-title">{title}</h3>
         
-        <div className="opp-provider-row">
+        <div className="opp-provider-row flex items-center gap-2 flex-wrap">
           <div className="provider-avatar">{initial}</div>
           <span className="provider-name">{providerName}</span>
+          {poster?.is_verified && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Verified Provider
+            </span>
+          )}
         </div>
 
         <div className="opp-meta-row">

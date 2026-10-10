@@ -1,6 +1,11 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+if (!API_BASE_URL) {
+  console.error('[authService] FATAL ERROR: VITE_API_BASE_URL is not defined! Please define VITE_API_BASE_URL in your frontend/.env.local file.');
+  throw new Error('VITE_API_BASE_URL environment variable is missing.');
+}
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
