@@ -21,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables: root .env first, then backend/.env (which overrides local dev settings like DB_HOST)
 load_dotenv(BASE_DIR.parent / ".env")
-load_dotenv(BASE_DIR / ".env", override=True)
+load_dotenv(BASE_DIR / ".env", override=not os.path.exists("/.dockerenv"))
 
 
 
