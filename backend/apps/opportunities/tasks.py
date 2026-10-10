@@ -224,3 +224,52 @@ def generate_daily_recommendations():
     logger.info(f"Celery Beat generated {total_recs_created} recommendations across {students.count()} students.")
     return total_recs_created
 
+
+from apps.common.gemini_client import AIBusyError, AIConfigError, AIFailureError
+from apps.opportunities.embeddings import index_opportunity
+
+
+@shared_task(bind=True, max_retries=3)
+def index_opportunity_task(self, opportunity_id):
+    """
+    Celery task to compute and persist the vector embedding for an opportunity.
+    - If the opportunity was deleted or does not exist, exits quietly.
+    - Retries with exponential backoff on AIBusyError (max 3 retries).
+    - Logs exception type and finishes quietly on AIConfigError / AIFailureError.
+    - Idempotent: safe to run multiple times.
+    """
+    try:
+        opportunity = Opportunity.objects.get(pk=opportunity_id)
+    except Opportunity.DoesNotExist:
+        logger.info(f"Opportunity {opportunity_id} not found for indexing; skipping.")
+        return "not_found"
+
+    try:
+        result = index_opportunity(opportunity)
+        logger.info(f"Opportunity {opportunity_id} embedding indexing result: {result}")
+        return result
+    except AIBusyError as exc:
+        logger.warning(
+            "Gemini API busy indexing opportunity %s (retry %d/%d): %s",
+            opportunity_id,
+            self.request.retries + 1,
+            self.max_retries,
+            type(exc).__name__,
+        )
+        countdown = (2 ** self.request.retries) * 5
+        raise self.retry(exc=exc, countdown=countdown)
+    except (AIConfigError, AIFailureError) as exc:
+        logger.error(
+            "Gemini API non-retryable error indexing opportunity %s: %s",
+            opportunity_id,
+            type(exc).__name__,
+        )
+        return "failed"
+    except Exception as exc:
+        logger.error(
+            "Unexpected error indexing opportunity %s: %s",
+            opportunity_id,
+            type(exc).__name__,
+        )
+        return "failed"
+

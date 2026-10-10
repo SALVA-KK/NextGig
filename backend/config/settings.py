@@ -311,3 +311,9 @@ GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL")
 _raw_embed_dim = os.getenv("GEMINI_EMBEDDING_DIM")
 GEMINI_EMBEDDING_DIM = int(_raw_embed_dim) if _raw_embed_dim else None
 
+# RAG Auto-indexing via post_save signal (disabled during test runs to prevent Celery/API calls)
+if TESTING:
+    RAG_AUTO_INDEX = False
+else:
+    RAG_AUTO_INDEX = os.getenv("RAG_AUTO_INDEX", "true").strip().lower() in ("true", "1", "yes")
+
