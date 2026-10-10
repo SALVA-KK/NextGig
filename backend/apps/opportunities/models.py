@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from pgvector.django import HnswIndex, VectorField
 
 
 class Opportunity(models.Model):
@@ -215,5 +216,37 @@ class RecommendedOpportunity(models.Model):
 
     def __str__(self):
         return f"Rec for {self.student.email}: '{self.opportunity.title}' (score={self.score})"
+
+
+class OpportunityEmbedding(models.Model):
+    """
+    Vector embedding representation of an Opportunity for semantic search and RAG retrieval.
+    """
+
+    opportunity = models.OneToOneField(
+        Opportunity,
+        on_delete=models.CASCADE,
+        related_name="embedding",
+    )
+    embedding = VectorField(dimensions=768)
+    content_hash = models.CharField(max_length=64)
+    embedding_model = models.CharField(max_length=100)
+    embedding_dim = models.IntegerField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "opportunity_embeddings"
+        verbose_name = _("opportunity embedding")
+        verbose_name_plural = _("opportunity embeddings")
+        indexes = [
+            HnswIndex(
+                name="opp_embedding_hnsw_idx",
+                fields=["embedding"],
+                opclasses=["vector_cosine_ops"],
+            ),
+        ]
+
+    def __str__(self):
+        return f"Embedding for Opportunity #{self.opportunity_id} ({self.embedding_model}:{self.embedding_dim})"
 
 

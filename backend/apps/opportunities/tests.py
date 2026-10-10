@@ -1439,3 +1439,6 @@ class RecommendationFeatureTests(APITestCase):
         res_admin = self.client.get(self.rec_endpoint)
         self.assertEqual(res_admin.status_code, status.HTTP_403_FORBIDDEN)
 
+
+from .test_embeddings import OpportunityEmbeddingUnitTestCase  # noqa: F401
+

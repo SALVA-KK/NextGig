@@ -307,4 +307,7 @@ SIMPLE_JWT = {
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3-flash-preview")
+GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL")
+_raw_embed_dim = os.getenv("GEMINI_EMBEDDING_DIM")
+GEMINI_EMBEDDING_DIM = int(_raw_embed_dim) if _raw_embed_dim else None
 

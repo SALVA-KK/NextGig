@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -142,3 +143,105 @@ def generate_text(
         raise AIFailureError("Empty response text returned from Gemini API.")
 
     return raw_response_text
+
+
+def _l2_normalize(vec: List[float]) -> List[float]:
+    """
+    Normalizes a vector to unit L2 length.
+    If the vector has zero norm or NaN, returns a zero vector safely.
+    """
+    norm = math.sqrt(sum(x * x for x in vec))
+    if norm == 0.0 or math.isnan(norm):
+        return [0.0] * len(vec)
+    return [x / norm for x in vec]
+
+
+EMBEDDING_BATCH_SIZE = 50
+
+
+def embed_texts(texts: List[str], *, task_type: str) -> List[List[float]]:
+    """
+    Generates vector embeddings for a list of texts using Google Gemini API.
+
+    :param texts: List of text strings to embed.
+    :param task_type: "RETRIEVAL_DOCUMENT" for stored text, "RETRIEVAL_QUERY" for queries.
+    :return: List of L2-normalized float vectors.
+    :raises AIConfigError: If GOOGLE_API_KEY, GEMINI_EMBEDDING_MODEL, or GEMINI_EMBEDDING_DIM is missing/invalid.
+    :raises AIBusyError: If the Gemini service is busy (503, 429, timeout).
+    :raises AIFailureError: If the API returns errors, empty, or incomplete embeddings.
+    """
+    if not isinstance(texts, list):
+        raise ValueError("texts must be a list of strings.")
+    if not texts:
+        return []
+
+    if task_type not in ("RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"):
+        raise ValueError(
+            f"Invalid task_type: '{task_type}'. Must be 'RETRIEVAL_DOCUMENT' or 'RETRIEVAL_QUERY'."
+        )
+
+    api_key = getattr(settings, "GOOGLE_API_KEY", "")
+    if not api_key or not str(api_key).strip():
+        logger.error("GOOGLE_API_KEY is missing or empty in settings.")
+        raise AIConfigError("Gemini API key is not configured.")
+
+    embedding_model = getattr(settings, "GEMINI_EMBEDDING_MODEL", None)
+    if not embedding_model or not str(embedding_model).strip():
+        logger.error("GEMINI_EMBEDDING_MODEL is missing or empty in settings.")
+        raise AIConfigError("Gemini embedding model is not configured.")
+
+    embedding_dim = getattr(settings, "GEMINI_EMBEDDING_DIM", None)
+    if embedding_dim is None:
+        logger.error("GEMINI_EMBEDDING_DIM is missing or empty in settings.")
+        raise AIConfigError("Gemini embedding dimension is not configured.")
+    try:
+        dim = int(embedding_dim)
+        if dim <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        logger.error("GEMINI_EMBEDDING_DIM must be a positive integer.")
+        raise AIConfigError("Gemini embedding dimension must be a positive integer.")
+
+    client = genai.Client(api_key=api_key)
+    http_opts = types.HttpOptions(
+        timeout=20000,  # 20 seconds timeout per attempt in milliseconds
+        retry_options=types.HttpRetryOptions(attempts=1),
+    )
+
+    all_embeddings: List[List[float]] = []
+
+    for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+        batch = texts[i : i + EMBEDDING_BATCH_SIZE]
+        try:
+            response = client.models.embed_content(
+                model=embedding_model,
+                contents=batch,
+                config=types.EmbedContentConfig(
+                    task_type=task_type,
+                    output_dimensionality=dim,
+                    http_options=http_opts,
+                ),
+            )
+        except Exception as exc:
+            status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            logger.error(
+                "Gemini API failure during embed_content (status=%s): %s",
+                status_code,
+                type(exc).__name__,
+            )
+            if _is_busy_exception(exc):
+                raise AIBusyError("The AI service is busy right now.") from exc
+            raise AIFailureError("Could not generate embeddings from Gemini API.") from exc
+
+        if not response or not getattr(response, "embeddings", None) or len(response.embeddings) != len(batch):
+            logger.error("Gemini API returned empty or incomplete embeddings response.")
+            raise AIFailureError("Embedding API returned incomplete or empty results.")
+
+        for emb in response.embeddings:
+            values = getattr(emb, "values", None)
+            if values is None:
+                logger.error("Gemini embedding object is missing 'values'.")
+                raise AIFailureError("Missing embedding values in API response.")
+            all_embeddings.append(_l2_normalize(list(values)))
+
+    return all_embeddings

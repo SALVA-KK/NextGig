@@ -29,4 +29,5 @@ firebase-admin
 pypdf
 python-docx
 google-genai>=2.25.0
+pgvector
 
