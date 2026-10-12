@@ -1441,4 +1441,5 @@ class RecommendationFeatureTests(APITestCase):
 
 
 from .test_embeddings import OpportunityEmbeddingUnitTestCase  # noqa: F401
+from .test_seed_demo_opportunities import SeedDemoOpportunitiesCommandTestCase  # noqa: F401
 
