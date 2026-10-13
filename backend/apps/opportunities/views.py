@@ -1,4 +1,6 @@
+import hashlib
 import logging
+import urllib.parse
 
 from django.db import IntegrityError, transaction
 from django.http import FileResponse
@@ -30,6 +32,7 @@ from .serializers import (
     RecommendedOpportunitySerializer,
     SavedOpportunitySerializer,
 )
+from .signals import get_opportunity_list_cache_version
 from .tasks import notify_applicant_of_status_change, notify_poster_of_new_application
 
 logger = logging.getLogger(__name__)
@@ -116,7 +119,29 @@ class OpportunityListCreateView(generics.ListCreateAPIView):
         responses={200: OpportunityListSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
+        cache_key = None
+        try:
+            from django.core.cache import cache
+            version = get_opportunity_list_cache_version()
+            sorted_params = urllib.parse.urlencode(sorted(request.query_params.lists()))
+            params_hash = hashlib.md5(sorted_params.encode("utf-8")).hexdigest()
+            cache_key = f"opp_list:v{version}:{params_hash}"
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                return Response(cached_data)
+        except Exception as exc:
+            logger.warning("Opportunity list cache get failed: %s", exc)
+
+        response = super().get(request, *args, **kwargs)
+
+        if response.status_code == 200 and cache_key is not None:
+            try:
+                from django.core.cache import cache
+                cache.set(cache_key, response.data, timeout=60)
+            except Exception as exc:
+                logger.warning("Opportunity list cache set failed: %s", exc)
+
+        return response
 
     @extend_schema(
         summary="Create new opportunity",

@@ -257,6 +257,24 @@ if TESTING:
         "django.contrib.auth.hashers.MD5PasswordHasher",
     ]
 
+# Redis Cache Configuration
+REDIS_CACHE_URL = os.getenv("REDIS_CACHE_URL", "redis://localhost:6379/1")
+
+if TESTING:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_CACHE_URL,
+        }
+    }
+
 # Celery & Redis Configuration
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
@@ -359,5 +377,20 @@ if _raw_query_timeout is not None and _raw_query_timeout.strip() != "":
         ) from exc
 else:
     RAG_QUERY_EMBED_TIMEOUT_SECONDS = 5
+
+# Query embedding cache TTL in seconds for RAG retrieval (default: 86400 / 24 hours)
+_raw_query_cache_ttl = os.getenv("RAG_QUERY_CACHE_TTL_SECONDS")
+if _raw_query_cache_ttl is not None and _raw_query_cache_ttl.strip() != "":
+    try:
+        _parsed_query_cache_ttl = int(_raw_query_cache_ttl.strip())
+        if _parsed_query_cache_ttl <= 0:
+            raise ValueError("TTL must be positive.")
+        RAG_QUERY_CACHE_TTL_SECONDS = _parsed_query_cache_ttl
+    except (ValueError, TypeError) as exc:
+        raise ImproperlyConfigured(
+            f"Invalid RAG_QUERY_CACHE_TTL_SECONDS setting '{_raw_query_cache_ttl}': must be a positive integer."
+        ) from exc
+else:
+    RAG_QUERY_CACHE_TTL_SECONDS = 86400
 
 

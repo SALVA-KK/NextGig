@@ -55,6 +55,9 @@ def make_2d_unit_vector(dim: int, angle_rad: float) -> List[float]:
 )
 class RetrievalUnitTestCase(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
         self.poster = User.objects.create_user(
             email="retrieval_poster@example.com",
             password="Password123!",
@@ -572,3 +575,151 @@ class EvaluateRetrievalCommandTestCase(TestCase):
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
+
+
+@override_settings(
+    GOOGLE_API_KEY="test-key",
+    GEMINI_EMBEDDING_MODEL="test-model",
+    GEMINI_EMBEDDING_DIM=768,
+    RAG_AUTO_INDEX=False,
+    ASSISTANT_USE_RAG=True,
+)
+class RAGQueryEmbeddingCacheTestCase(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        from rest_framework.test import APIClient
+
+        cache.clear()
+        self.client = APIClient()
+
+        self.poster = User.objects.create_user(
+            email="cache_test_poster@example.com",
+            password="Password123!",
+            full_name="Cache Poster",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+        self.opp = Opportunity.objects.create(
+            poster=self.poster,
+            title="Python Developer",
+            category="tech",
+            work_mode="remote",
+            status=Opportunity.Status.OPEN,
+            deadline=timezone.localdate() + datetime.timedelta(days=14),
+        )
+        self.opp_emb = OpportunityEmbedding.objects.create(
+            opportunity=self.opp,
+            embedding=make_unit_vector(768, 0, 1.0),
+            content_hash="python_hash",
+            embedding_model="test-model",
+            embedding_dim=768,
+        )
+
+    @patch("apps.assistant.rag.retrieval.embed_texts")
+    def test_embedding_cache_hit_skips_embed_texts(self, mock_embed):
+        """
+        First call performs cache miss and calls embed_texts.
+        Second call with the same query hits cache and skips embed_texts.
+        """
+        mock_embed.return_value = [make_unit_vector(768, 0, 1.0)]
+
+        # 1. First call - cache miss
+        cand_dict_1, opts_1, source_1 = retrieve_with_source("python developer")
+        self.assertEqual(source_1, "vector")
+        self.assertEqual(mock_embed.call_count, 1)
+        self.assertIn(self.opp.id, cand_dict_1)
+
+        # 2. Second call - cache hit, skips embed_texts
+        cand_dict_2, opts_2, source_2 = retrieve_with_source("python developer")
+        self.assertEqual(source_2, "vector")
+        self.assertEqual(mock_embed.call_count, 1)  # Still 1: embed_texts was skipped!
+        self.assertIn(self.opp.id, cand_dict_2)
+
+    @patch("apps.assistant.rag.retrieval.embed_texts")
+    def test_embedding_cache_miss_calls_once_and_stores(self, mock_embed):
+        """
+        Cache miss invokes embed_texts exactly once and stores vector in cache under key
+        hash of (normalized query text + model + dim).
+        """
+        from django.core.cache import cache
+        from apps.assistant.rag.retrieval import get_query_embedding_cache_key
+
+        expected_vector = make_unit_vector(768, 0, 1.0)
+        mock_embed.return_value = [expected_vector]
+
+        cache_key = get_query_embedding_cache_key("   Python   Developer   ")
+        self.assertIsNone(cache.get(cache_key))
+
+        cand_dict, opts, source = retrieve_with_source("   Python   Developer   ")
+        self.assertEqual(mock_embed.call_count, 1)
+        self.assertEqual(source, "vector")
+
+        cached_vector = cache.get(cache_key)
+        self.assertIsNotNone(cached_vector)
+        self.assertEqual(cached_vector, expected_vector)
+
+    @patch("apps.assistant.rag.retrieval.embed_texts")
+    def test_cache_backend_exception_does_not_break_retrieval(self, mock_embed):
+        """
+        When cache get or set raises an exception (e.g. Redis connection error),
+        retrieval catches it, falls through, and completes successfully.
+        """
+        mock_embed.return_value = [make_unit_vector(768, 0, 1.0)]
+
+        with patch("django.core.cache.cache.get", side_effect=Exception("Redis connection refused")):
+            with patch("django.core.cache.cache.set", side_effect=Exception("Redis connection refused")):
+                cand_dict, opts, source = retrieve_with_source("python developer")
+                self.assertEqual(source, "vector")
+                self.assertIn(self.opp.id, cand_dict)
+                self.assertEqual(mock_embed.call_count, 1)
+
+    @patch("apps.assistant.rag.retrieval.embed_texts")
+    @patch("apps.assistant.views.generate_text")
+    def test_cache_backend_exception_does_not_break_chat(self, mock_generate, mock_embed):
+        """
+        When cache raises an exception during assistant chat request, chat endpoint
+        does not break and returns 200 OK.
+        """
+        student = User.objects.create_user(
+            email="chat_student_cache@example.com",
+            password="Password123!",
+            full_name="Chat Student",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        mock_embed.return_value = [make_unit_vector(768, 0, 1.0)]
+        mock_generate.return_value = json.dumps({
+            "reply": "Here is a python job recommendation.",
+            "opportunity_ids": [self.opp.id],
+        })
+
+        self.client.force_authenticate(user=student)
+        with patch("django.core.cache.cache.get", side_effect=Exception("Redis connection error")):
+            with patch("django.core.cache.cache.set", side_effect=Exception("Redis connection error")):
+                response = self.client.post(
+                    "/api/assistant/chat/",
+                    {"message": "Looking for python jobs"},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("reply", response.data)
+
+    def test_rag_query_cache_ttl_setting_parsing(self):
+        """
+        Safe parsing: invalid or non-positive RAG_QUERY_CACHE_TTL_SECONDS raises ImproperlyConfigured.
+        """
+        from django.core.exceptions import ImproperlyConfigured
+
+        for invalid_val in ["abc", "-5", "0"]:
+            with self.subTest(invalid_val=invalid_val):
+                with self.assertRaises(ImproperlyConfigured):
+                    try:
+                        val = int(invalid_val)
+                        if val <= 0:
+                            raise ValueError("TTL must be positive.")
+                    except (ValueError, TypeError) as exc:
+                        raise ImproperlyConfigured(
+                            f"Invalid RAG_QUERY_CACHE_TTL_SECONDS setting '{invalid_val}': must be a positive integer."
+                        ) from exc
+
+

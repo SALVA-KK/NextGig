@@ -1440,6 +1440,149 @@ class RecommendationFeatureTests(APITestCase):
         self.assertEqual(res_admin.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class OpportunityCacheTestCase(APITestCase):
+    """
+    Test suite for Redis/LocMem caching of public opportunity listings and invalidation.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        # Create verified poster
+        self.poster = User.objects.create_user(
+            email="cache_poster@example.com",
+            password="Password123!",
+            full_name="Cache Poster",
+            role=User.Role.PROVIDER,
+            is_verified=True,
+        )
+
+        # Create initial open opportunity
+        self.opp1 = Opportunity.objects.create(
+            poster=self.poster,
+            title="Frontend Developer Listing",
+            category="tech",
+            work_mode="remote",
+            status=Opportunity.Status.OPEN,
+            deadline=timezone.localdate() + timedelta(days=14),
+        )
+        self.list_url = "/api/opportunities/"
+
+    def test_list_cache_served_on_second_request_with_lower_queries(self):
+        """
+        First GET /api/opportunities/ executes database queries and stores response.
+        Second GET /api/opportunities/ is served from cache and executes fewer queries (0).
+        """
+        # First request - cache miss, hits database
+        res1 = self.client.get(self.list_url)
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res1.data["results"]), 1)
+
+        # Second request - cache hit, assertNumQueries lower (0 queries)
+        with self.assertNumQueries(0):
+            res2 = self.client.get(self.list_url)
+            self.assertEqual(res2.status_code, status.HTTP_200_OK)
+            self.assertEqual(res1.data, res2.data)
+
+    def test_opportunity_save_and_delete_invalidates_list_cache(self):
+        """
+        Saving or deleting an Opportunity increments version key and invalidates list cache.
+        """
+        # Warm cache
+        res1 = self.client.get(self.list_url)
+        self.assertEqual(len(res1.data["results"]), 1)
+
+        # Create/save new opportunity (triggers post_save signal)
+        opp2 = Opportunity.objects.create(
+            poster=self.poster,
+            title="Backend Engineer Listing",
+            category="tech",
+            work_mode="remote",
+            status=Opportunity.Status.OPEN,
+            deadline=timezone.localdate() + timedelta(days=20),
+        )
+
+        # Cache was invalidated: second request fetches 2 opportunities
+        res2 = self.client.get(self.list_url)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res2.data["results"]), 2)
+        titles = [item["title"] for item in res2.data["results"]]
+        self.assertIn("Backend Engineer Listing", titles)
+
+        # Warm cache for current version
+        with self.assertNumQueries(0):
+            res2_cached = self.client.get(self.list_url)
+            self.assertEqual(res2_cached.data, res2.data)
+
+        # Delete opp2 (triggers post_delete signal)
+        opp2.delete()
+
+        # Cache was invalidated: third request fetches 1 opportunity
+        res3 = self.client.get(self.list_url)
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res3.data["results"]), 1)
+        titles_after_del = [item["title"] for item in res3.data["results"]]
+        self.assertNotIn("Backend Engineer Listing", titles_after_del)
+
+    def test_per_user_data_never_served_from_shared_cache(self):
+        """
+        Per-user data (e.g. saved opportunities, applications) is never served from
+        the shared cache: two distinct users receive different, isolated responses.
+        """
+        # Create student 1
+        student1 = User.objects.create_user(
+            email="student1_cache@example.com",
+            password="Password123!",
+            full_name="Student One",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+        # Create student 2
+        student2 = User.objects.create_user(
+            email="student2_cache@example.com",
+            password="Password123!",
+            full_name="Student Two",
+            role=User.Role.STUDENT,
+            is_verified=True,
+        )
+
+        opp2 = Opportunity.objects.create(
+            poster=self.poster,
+            title="Design Intern",
+            category="design",
+            work_mode="onsite",
+            status=Opportunity.Status.OPEN,
+            deadline=timezone.localdate() + timedelta(days=10),
+        )
+
+        # Student 1 saves opp1
+        SavedOpportunity.objects.create(user=student1, opportunity=self.opp1)
+        # Student 2 saves opp2
+        SavedOpportunity.objects.create(user=student2, opportunity=opp2)
+
+        saved_url = reverse("opportunities:saved-opportunity-list")
+
+        # Request as student 1
+        self.client.force_authenticate(user=student1)
+        res1 = self.client.get(saved_url)
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        student1_opp_ids = [item["opportunity"]["id"] for item in res1.data["results"]]
+        self.assertIn(self.opp1.id, student1_opp_ids)
+        self.assertNotIn(opp2.id, student1_opp_ids)
+
+        # Request as student 2 - must NOT receive cached response from student 1
+        self.client.force_authenticate(user=student2)
+        res2 = self.client.get(saved_url)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        student2_opp_ids = [item["opportunity"]["id"] for item in res2.data["results"]]
+        self.assertIn(opp2.id, student2_opp_ids)
+        self.assertNotIn(self.opp1.id, student2_opp_ids)
+
+        # Both responses are completely different and user-isolated
+        self.assertNotEqual(res1.data, res2.data)
+
+
 from .test_embeddings import OpportunityEmbeddingUnitTestCase  # noqa: F401
 from .test_seed_demo_opportunities import SeedDemoOpportunitiesCommandTestCase  # noqa: F401
 

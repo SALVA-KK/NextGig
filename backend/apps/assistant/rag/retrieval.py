@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -41,6 +42,18 @@ def get_query_embed_timeout() -> Union[int, float]:
         raise ImproperlyConfigured(
             f"Invalid RAG_QUERY_EMBED_TIMEOUT_SECONDS setting '{raw_timeout}': must be a positive number."
         ) from exc
+
+
+def get_query_embedding_cache_key(query_text: str) -> str:
+    """
+    Constructs a cache key for the query embedding:
+    hash of (normalized query text + embedding model + dim).
+    """
+    normalized_query = " ".join(query_text.strip().lower().split())
+    model = str(getattr(settings, "GEMINI_EMBEDDING_MODEL", "") or "")
+    dim = str(getattr(settings, "GEMINI_EMBEDDING_DIM", "") or "")
+    raw = f"{normalized_query}:{model}:{dim}".encode("utf-8")
+    return f"rag:query_emb:{hashlib.sha256(raw).hexdigest()}"
 
 
 def build_query_text(
@@ -123,21 +136,38 @@ def retrieve_with_source(
 
     query_timeout = get_query_embed_timeout()
 
+    cache_key = get_query_embedding_cache_key(query_text)
+    query_vector = None
     try:
-        vectors = embed_texts([query_text], task_type="RETRIEVAL_QUERY", timeout=query_timeout)
-        if not vectors or not vectors[0]:
-            raise AIFailureError("Empty vector response returned for query")
-        query_vector = vectors[0]
+        from django.core.cache import cache
+        query_vector = cache.get(cache_key)
+    except Exception as exc:
+        logger.warning("Cache get failed for query embedding: %s", exc)
+        query_vector = None
 
-    except (AIBusyError, AIFailureError, AIConfigError) as exc:
-        logger.warning(
-            "Vector embedding failed (%s); falling back to heuristic context",
-            type(exc).__name__,
-        )
-        rows, opts = get_candidate_opportunities_context(profile_data)
-        if return_metadata:
-            return rows, opts, "fallback", {"top_similarity": None}
-        return rows, opts, "fallback"
+    if query_vector is None:
+        try:
+            vectors = embed_texts([query_text], task_type="RETRIEVAL_QUERY", timeout=query_timeout)
+            if not vectors or not vectors[0]:
+                raise AIFailureError("Empty vector response returned for query")
+            query_vector = vectors[0]
+
+            try:
+                from django.core.cache import cache
+                ttl = getattr(settings, "RAG_QUERY_CACHE_TTL_SECONDS", 86400)
+                cache.set(cache_key, query_vector, timeout=ttl)
+            except Exception as exc:
+                logger.warning("Cache set failed for query embedding: %s", exc)
+
+        except (AIBusyError, AIFailureError, AIConfigError) as exc:
+            logger.warning(
+                "Vector embedding failed (%s); falling back to heuristic context",
+                type(exc).__name__,
+            )
+            rows, opts = get_candidate_opportunities_context(profile_data)
+            if return_metadata:
+                return rows, opts, "fallback", {"top_similarity": None}
+            return rows, opts, "fallback"
 
     today = timezone.localdate()
     embeddings_qs = (
