@@ -1,5 +1,7 @@
 import json
 import logging
+import time
+from django.conf import settings
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,6 +18,7 @@ from apps.assistant.context import (
     get_student_profile_context,
     get_candidate_opportunities_context,
 )
+from apps.assistant.rag.retrieval import build_query_text, retrieve_with_source
 from apps.common.gemini_client import (
     generate_text,
     AIConfigError,
@@ -27,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_conversation(history_items, new_message):
+
     """
     Format history items + new_message into conversation items for generate_text:
     list of {"role": "user"|"model", "text": str}.
@@ -89,11 +93,39 @@ class AssistantChatView(APIView):
 
         # 1. Build context data
         profile_data = get_student_profile_context(request.user)
-        candidate_rows, sanitized_opts = get_candidate_opportunities_context(profile_data)
+
+        t0 = time.perf_counter()
+        if getattr(settings, "ASSISTANT_USE_RAG", False):
+            try:
+                query_text = build_query_text(message, history)
+                candidate_rows, sanitized_opts, source = retrieve_with_source(
+                    query_text=query_text,
+                    student_profile_data=profile_data,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Unexpected retrieval error (%s); falling back to heuristic context",
+                    type(exc).__name__,
+                )
+                candidate_rows, sanitized_opts = get_candidate_opportunities_context(profile_data)
+                source = "fallback"
+        else:
+            candidate_rows, sanitized_opts = get_candidate_opportunities_context(profile_data)
+            source = "off"
+
+        retrieval_ms = (time.perf_counter() - t0) * 1000.0
+        logger.info("Assistant retrieval completed in %.2fms (source=%s)", retrieval_ms, source)
 
         # 2. Build full system instruction
+        base_instruction = SYSTEM_INSTRUCTION_BASE
+        if source == "no_match":
+            base_instruction = (
+                f"{base_instruction}\n"
+                "If the candidate list is empty, say that no listing matches and suggest browsing the Opportunities page."
+            )
+
         system_instruction = (
-            f"{SYSTEM_INSTRUCTION_BASE}\n\n"
+            f"{base_instruction}\n\n"
             "DATA BLOCKS:\n\n"
             "--- STUDENT PROFILE DATA ---\n"
             f"{json.dumps(profile_data, indent=2)}\n\n"
@@ -102,6 +134,7 @@ class AssistantChatView(APIView):
             "--- CANDIDATE OPPORTUNITIES DATA ---\n"
             f"{json.dumps(sanitized_opts, indent=2)}"
         )
+
 
         # 3. Format conversation turns
         conversation_items = build_conversation(history, message)

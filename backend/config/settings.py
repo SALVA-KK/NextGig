@@ -15,6 +15,7 @@ import os
 import sys
 from datetime import timedelta
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -250,6 +251,12 @@ RECAPTCHA_SITE_KEY = "6LcBi4wtAAAAABRj00TpA7AXsd0-9z8WJ52y5uOV"
 # Test environment detection flag
 TESTING = "test" in sys.argv
 
+# Fast password hasher for testing
+if TESTING:
+    PASSWORD_HASHERS = [
+        "django.contrib.auth.hashers.MD5PasswordHasher",
+    ]
+
 # Celery & Redis Configuration
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
@@ -316,4 +323,23 @@ if TESTING:
     RAG_AUTO_INDEX = False
 else:
     RAG_AUTO_INDEX = os.getenv("RAG_AUTO_INDEX", "true").strip().lower() in ("true", "1", "yes")
+
+# Student Assistant RAG retrieval feature flag (disabled under test runs)
+if TESTING:
+    ASSISTANT_USE_RAG = False
+else:
+    _raw_use_rag = os.getenv("ASSISTANT_USE_RAG", "true")
+    ASSISTANT_USE_RAG = _raw_use_rag.strip().lower() in ("true", "1", "yes")
+
+# Minimum cosine similarity threshold for RAG retrieval (disabled by default)
+_raw_min_sim = os.getenv("RAG_MIN_SIMILARITY")
+if _raw_min_sim is not None and _raw_min_sim.strip() != "":
+    try:
+        RAG_MIN_SIMILARITY = float(_raw_min_sim.strip())
+    except (ValueError, TypeError) as exc:
+        raise ImproperlyConfigured(
+            f"Invalid RAG_MIN_SIMILARITY setting '{_raw_min_sim}': must be a valid float."
+        ) from exc
+else:
+    RAG_MIN_SIMILARITY = None
 

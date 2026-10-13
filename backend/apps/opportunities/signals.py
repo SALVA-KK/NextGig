@@ -18,6 +18,9 @@ def opportunity_post_save_rag_indexing(sender, instance, **kwargs):
     - Uses transaction.on_commit to guarantee the DB transaction has committed.
     - Wraps enqueue in try/except so broker/network failures never prevent saving the Opportunity.
     """
+    if kwargs.get("raw", False):
+        return
+
     if not getattr(settings, "RAG_AUTO_INDEX", True):
         return
 

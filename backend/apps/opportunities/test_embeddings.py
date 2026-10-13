@@ -484,6 +484,22 @@ class OpportunityEmbeddingUnitTestCase(TestCase):
         self.assertIsNotNone(saved_opp.id)
         self.assertTrue(Opportunity.objects.filter(id=saved_opp.id).exists())
 
+    @override_settings(RAG_AUTO_INDEX=True)
+    @patch("apps.opportunities.tasks.index_opportunity_task.delay")
+    def test_signal_ignores_raw_true_saves(self, mock_delay):
+        """
+        Signal handler immediately returns without enqueuing when raw=True (e.g. loaddata).
+        """
+        from apps.opportunities.signals import opportunity_post_save_rag_indexing
+
+        with self.captureOnCommitCallbacks(execute=True):
+            opportunity_post_save_rag_indexing(
+                sender=Opportunity,
+                instance=self.opportunity,
+                raw=True,
+            )
+        mock_delay.assert_not_called()
+
     # ---------------------------------------------------------
     # Backfill Command: index_opportunities Tests
     # ---------------------------------------------------------
