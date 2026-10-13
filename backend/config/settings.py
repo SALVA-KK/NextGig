@@ -343,3 +343,21 @@ if _raw_min_sim is not None and _raw_min_sim.strip() != "":
 else:
     RAG_MIN_SIMILARITY = None
 
+# Query embedding timeout in seconds for RAG retrieval (default: 5)
+_raw_query_timeout = os.getenv("RAG_QUERY_EMBED_TIMEOUT_SECONDS")
+if _raw_query_timeout is not None and _raw_query_timeout.strip() != "":
+    try:
+        _parsed_query_timeout = float(_raw_query_timeout.strip())
+        if _parsed_query_timeout <= 0:
+            raise ValueError("Timeout must be positive.")
+        RAG_QUERY_EMBED_TIMEOUT_SECONDS = (
+            int(_parsed_query_timeout) if _parsed_query_timeout.is_integer() else _parsed_query_timeout
+        )
+    except (ValueError, TypeError) as exc:
+        raise ImproperlyConfigured(
+            f"Invalid RAG_QUERY_EMBED_TIMEOUT_SECONDS setting '{_raw_query_timeout}': must be a positive number."
+        ) from exc
+else:
+    RAG_QUERY_EMBED_TIMEOUT_SECONDS = 5
+
+

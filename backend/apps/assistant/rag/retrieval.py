@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Q
 from django.utils import timezone
 from pgvector.django import CosineDistance
@@ -23,11 +24,31 @@ MAX_SKILL_OVERLAP = 3
 CITY_MATCH_WEIGHT = 0.03
 
 
+def get_query_embed_timeout() -> Union[int, float]:
+    """
+    Reads RAG_QUERY_EMBED_TIMEOUT_SECONDS from settings (default 5).
+    Raises ImproperlyConfigured if invalid or non-positive.
+    """
+    raw_timeout = getattr(settings, "RAG_QUERY_EMBED_TIMEOUT_SECONDS", 5)
+    if raw_timeout is None or (isinstance(raw_timeout, str) and not raw_timeout.strip()):
+        return 5
+    try:
+        val = float(raw_timeout)
+        if val <= 0:
+            raise ValueError("Timeout must be positive.")
+        return int(val) if val.is_integer() else val
+    except (ValueError, TypeError) as exc:
+        raise ImproperlyConfigured(
+            f"Invalid RAG_QUERY_EMBED_TIMEOUT_SECONDS setting '{raw_timeout}': must be a positive number."
+        ) from exc
+
+
 def build_query_text(
     message: str,
     history: Optional[List[Dict[str, Any]]] = None,
     max_len: int = 500,
 ) -> str:
+
     """
     Builds a sanitized retrieval query combining the current message with up to the
     last 2 previous USER turns from history.
@@ -100,11 +121,14 @@ def retrieve_with_source(
             return rows, opts, "fallback", {"top_similarity": None}
         return rows, opts, "fallback"
 
+    query_timeout = get_query_embed_timeout()
+
     try:
-        vectors = embed_texts([query_text], task_type="RETRIEVAL_QUERY")
+        vectors = embed_texts([query_text], task_type="RETRIEVAL_QUERY", timeout=query_timeout)
         if not vectors or not vectors[0]:
             raise AIFailureError("Empty vector response returned for query")
         query_vector = vectors[0]
+
     except (AIBusyError, AIFailureError, AIConfigError) as exc:
         logger.warning(
             "Vector embedding failed (%s); falling back to heuristic context",

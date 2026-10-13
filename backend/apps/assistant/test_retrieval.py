@@ -319,7 +319,47 @@ class RetrievalUnitTestCase(TestCase):
                 ) from exc
         self.assertIn("must be a valid float", str(ctx.exception))
 
+    def test_rag_query_embed_timeout_invalid_or_non_positive_raises_improperly_configured(self):
+        """
+        Invalid or non-positive RAG_QUERY_EMBED_TIMEOUT_SECONDS raises ImproperlyConfigured.
+        """
+        from django.core.exceptions import ImproperlyConfigured
+        from apps.assistant.rag.retrieval import get_query_embed_timeout
 
+        for invalid_val in ["not-a-number", 0, -5, "-1.5"]:
+            with override_settings(RAG_QUERY_EMBED_TIMEOUT_SECONDS=invalid_val):
+                with self.assertRaises(ImproperlyConfigured) as ctx:
+                    get_query_embed_timeout()
+                self.assertIn("RAG_QUERY_EMBED_TIMEOUT_SECONDS", str(ctx.exception))
+
+    @override_settings(RAG_QUERY_EMBED_TIMEOUT_SECONDS=7)
+    @patch("apps.assistant.rag.retrieval.embed_texts")
+    def test_query_path_passes_timeout_from_setting(self, mock_embed):
+        """
+        Query embedding path passes the timeout value configured in RAG_QUERY_EMBED_TIMEOUT_SECONDS.
+        """
+        mock_embed.return_value = [make_unit_vector(768, 0, 1.0)]
+        opp = self._create_opp("Test Opportunity")
+        self._create_emb(opp, make_unit_vector(768, 0, 1.0))
+
+        retrieve_with_source("search query", {})
+
+        mock_embed.assert_called_once()
+        self.assertEqual(mock_embed.call_args.kwargs.get("timeout"), 7)
+        self.assertEqual(mock_embed.call_args.kwargs.get("task_type"), "RETRIEVAL_QUERY")
+
+    @patch("apps.assistant.rag.retrieval.embed_texts")
+    def test_query_embedding_timeout_triggers_fallback(self, mock_embed):
+        """
+        A timeout on the query embedding path surfaces as AIBusyError and triggers fallback.
+        """
+        mock_embed.side_effect = AIBusyError("Request timed out")
+        opp = self._create_opp("Fallback Opportunity")
+
+        rows, opts, source = retrieve_with_source("search query", {})
+
+        self.assertEqual(source, "fallback")
+        self.assertIn(opp.id, rows)
 
     # ------------------------------------------------------------------
     # 7. Return shapes and sanitized dictionary keys

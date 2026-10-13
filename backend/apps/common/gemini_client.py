@@ -157,14 +157,21 @@ def _l2_normalize(vec: List[float]) -> List[float]:
 
 
 EMBEDDING_BATCH_SIZE = 50
+DEFAULT_EMBEDDING_TIMEOUT_SECONDS = 20.0
 
 
-def embed_texts(texts: List[str], *, task_type: str) -> List[List[float]]:
+def embed_texts(
+    texts: List[str],
+    *,
+    task_type: str,
+    timeout: Optional[Union[int, float]] = None,
+) -> List[List[float]]:
     """
     Generates vector embeddings for a list of texts using Google Gemini API.
 
     :param texts: List of text strings to embed.
     :param task_type: "RETRIEVAL_DOCUMENT" for stored text, "RETRIEVAL_QUERY" for queries.
+    :param timeout: Optional timeout in seconds per attempt (defaults to 20 seconds).
     :return: List of L2-normalized float vectors.
     :raises AIConfigError: If GOOGLE_API_KEY, GEMINI_EMBEDDING_MODEL, or GEMINI_EMBEDDING_DIM is missing/invalid.
     :raises AIBusyError: If the Gemini service is busy (503, 429, timeout).
@@ -179,6 +186,16 @@ def embed_texts(texts: List[str], *, task_type: str) -> List[List[float]]:
         raise ValueError(
             f"Invalid task_type: '{task_type}'. Must be 'RETRIEVAL_DOCUMENT' or 'RETRIEVAL_QUERY'."
         )
+
+    if timeout is not None:
+        try:
+            timeout_sec = float(timeout)
+            if timeout_sec <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError("timeout must be a positive number.")
+    else:
+        timeout_sec = DEFAULT_EMBEDDING_TIMEOUT_SECONDS
 
     api_key = getattr(settings, "GOOGLE_API_KEY", "")
     if not api_key or not str(api_key).strip():
@@ -204,9 +221,10 @@ def embed_texts(texts: List[str], *, task_type: str) -> List[List[float]]:
 
     client = genai.Client(api_key=api_key)
     http_opts = types.HttpOptions(
-        timeout=20000,  # 20 seconds timeout per attempt in milliseconds
+        timeout=int(timeout_sec * 1000),
         retry_options=types.HttpRetryOptions(attempts=1),
     )
+
 
     all_embeddings: List[List[float]] = []
 

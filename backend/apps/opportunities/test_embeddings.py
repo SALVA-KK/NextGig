@@ -219,6 +219,55 @@ class OpportunityEmbeddingUnitTestCase(TestCase):
         with self.assertRaises(AIFailureError):
             embed_texts(["hello"], task_type="RETRIEVAL_DOCUMENT")
 
+    @patch("apps.common.gemini_client.genai.Client")
+    def test_embed_texts_timeout_parameter_and_default(self, mock_client_cls):
+        """
+        embed_texts passes timeout in milliseconds to HttpOptions.
+        When timeout is omitted, defaults to 20000ms (20s).
+        When custom timeout is passed, uses timeout * 1000ms.
+        Non-positive timeout raises ValueError.
+        """
+        mock_client = mock_client_cls.return_value
+        resp = MagicMock()
+        emb = MagicMock()
+        emb.values = [1.0] * 768
+        resp.embeddings = [emb]
+        mock_client.models.embed_content.return_value = resp
+
+        # Default timeout
+        embed_texts(["item"], task_type="RETRIEVAL_DOCUMENT")
+        default_config = mock_client.models.embed_content.call_args.kwargs["config"]
+        self.assertEqual(default_config.http_options.timeout, 20000)
+
+        # Custom timeout
+        mock_client.models.embed_content.reset_mock()
+        embed_texts(["item"], task_type="RETRIEVAL_DOCUMENT", timeout=5)
+        custom_config = mock_client.models.embed_content.call_args.kwargs["config"]
+        self.assertEqual(custom_config.http_options.timeout, 5000)
+
+        # Non-positive timeout raises ValueError
+        with self.assertRaises(ValueError):
+            embed_texts(["item"], task_type="RETRIEVAL_DOCUMENT", timeout=0)
+        with self.assertRaises(ValueError):
+            embed_texts(["item"], task_type="RETRIEVAL_DOCUMENT", timeout=-2)
+
+    @patch("apps.common.gemini_client.genai.Client")
+    def test_embed_texts_timeout_exception_surfaces_as_ai_busy_error(self, mock_client_cls):
+        """
+        A timeout exception raised by the underlying transport surfaces as AIBusyError.
+        """
+        import httpx
+        mock_client = mock_client_cls.return_value
+        mock_client.models.embed_content.side_effect = httpx.ReadTimeout("Connection timed out")
+
+        with self.assertRaises(AIBusyError):
+            embed_texts(["item"], task_type="RETRIEVAL_QUERY", timeout=5)
+
+        mock_client.models.embed_content.side_effect = TimeoutError("Deadline exceeded")
+        with self.assertRaises(AIBusyError):
+            embed_texts(["item"], task_type="RETRIEVAL_QUERY", timeout=5)
+
+
     def test_missing_gemini_embedding_model_or_dim_raises_clear_error(self):
         """
         Missing GEMINI_EMBEDDING_MODEL or GEMINI_EMBEDDING_DIM raises AIConfigError.
@@ -315,6 +364,18 @@ class OpportunityEmbeddingUnitTestCase(TestCase):
         self.assertEqual(embedding.embedding_dim, 768)
 
     @patch("apps.opportunities.embeddings.embed_texts", return_value=[[0.05] * 768])
+    def test_indexing_path_uses_default_timeout(self, mock_embed):
+        """
+        index_opportunity calls embed_texts without specifying a custom timeout,
+        preserving the default (longer) timeout.
+        """
+        res = index_opportunity(self.opportunity)
+        self.assertEqual(res, "embedded")
+        mock_embed.assert_called_once()
+        self.assertNotIn("timeout", mock_embed.call_args.kwargs)
+
+    @patch("apps.opportunities.embeddings.embed_texts", return_value=[[0.05] * 768])
+
     def test_index_opportunity_returns_unchanged_when_hash_matches(self, mock_embed):
         """
         When content hash, model, and dim match, returns 'unchanged' without calling embed_texts.
