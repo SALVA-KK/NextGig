@@ -30,4 +30,7 @@ pypdf
 python-docx
 google-genai>=2.25.0
 pgvector
+daphne==4.2.3
+channels==4.3.2
+channels-redis==4.3.0
 

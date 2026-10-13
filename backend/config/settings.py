@@ -39,12 +39,19 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 
 DEBUG = os.getenv("DEBUG") == "True"
 
-ALLOWED_HOSTS = []
+# Test environment detection flag
+TESTING = "test" in sys.argv
+
+_env_hosts = os.getenv("ALLOWED_HOSTS", "").split(",")
+ALLOWED_HOSTS = [h.strip() for h in _env_hosts if h.strip()]
+if not ALLOWED_HOSTS and (DEBUG or TESTING):
+    ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "[::1]"]
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -57,6 +64,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "corsheaders",
     "rest_framework_simplejwt.token_blacklist",
+    "channels",
 
     "apps.accounts",
     "apps.opportunities",
@@ -64,6 +72,8 @@ INSTALLED_APPS = [
     "apps.assistant",
     "django_celery_beat",
 ]
+
+ASGI_APPLICATION = "config.asgi.application"
 
 # Custom User Model definition
 # Points Django authentication framework to our CustomUser model in the accounts app
@@ -272,6 +282,25 @@ else:
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
             "LOCATION": REDIS_CACHE_URL,
+        }
+    }
+
+# Django Channels & Redis Configuration
+REDIS_CHANNEL_URL = os.getenv("REDIS_CHANNEL_URL", "redis://localhost:6379/2")
+
+if TESTING:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_CHANNEL_URL],
+            },
         }
     }
 

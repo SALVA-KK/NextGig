@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BellOff } from 'lucide-react';
 import { notificationService } from '../../services/notificationService';
+import { useNotificationSocket } from '../../hooks/useNotificationSocket';
 import EmptyState from '../common/EmptyState';
 
 export default function NotificationBell() {
@@ -9,6 +10,24 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef(null);
+
+  // Real-time WebSocket notification push listener
+  const handleIncomingNotification = useCallback((newNotif) => {
+    // Deduplicate by ID and prepend to notifications list
+    setNotifications((prev) => {
+      if (prev.some((n) => n.id === newNotif.id)) {
+        return prev;
+      }
+      return [newNotif, ...prev];
+    });
+
+    // Increment unread count if newly received notification is unread
+    if (!newNotif.is_read) {
+      setUnreadCount((prev) => prev + 1);
+    }
+  }, []);
+
+  useNotificationSocket(handleIncomingNotification);
 
   // Fetch unread count
   const fetchUnreadCount = async () => {

@@ -239,3 +239,230 @@ class NotificationAPITests(APITestCase):
         notif.refresh_from_db()
         self.assertIsNone(notif.opportunity)
         self.assertEqual(notif.title, "App Notif")
+
+
+from unittest.mock import patch
+from asgiref.sync import sync_to_async
+from channels.layers import get_channel_layer
+from channels.routing import URLRouter
+from channels.testing import WebsocketCommunicator
+from django.core.cache import cache
+from django.db import transaction
+from django.db.models.signals import post_save
+from django.test import TransactionTestCase, override_settings
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from config.asgi import application
+from apps.notifications.routing import websocket_urlpatterns
+from apps.notifications.serializers import NotificationSerializer
+from apps.notifications.services import create_notification
+
+
+inner_application = URLRouter(websocket_urlpatterns)
+
+
+@override_settings(
+    ALLOWED_HOSTS=["localhost", "127.0.0.1", "testserver"],
+    CHANNEL_LAYERS={"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}},
+)
+class NotificationWebSocketTests(TransactionTestCase):
+    def setUp(self):
+        cache.clear()
+        self.user_a = User.objects.create_user(
+            email="ws_user_a@example.com",
+            password="Password123!",
+            full_name="User Alpha",
+            role="student",
+            is_verified=True,
+        )
+        self.user_b = User.objects.create_user(
+            email="ws_user_b@example.com",
+            password="Password123!",
+            full_name="User Beta",
+            role="student",
+            is_verified=True,
+        )
+        self.token_a = self._get_token(self.user_a)
+        self.token_b = self._get_token(self.user_b)
+        self.expired_token_a = self._get_expired_token(self.user_a)
+
+    def _get_token(self, user):
+        return str(RefreshToken.for_user(user).access_token)
+
+    def _get_expired_token(self, user):
+        tok = RefreshToken.for_user(user).access_token
+        tok.set_exp(lifetime=timedelta(seconds=-10))
+        return str(tok)
+
+    async def test_valid_token_connects_successfully(self):
+        communicator = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.token_a}",
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        await communicator.disconnect()
+
+    async def test_missing_token_rejected_with_4401(self):
+        communicator = WebsocketCommunicator(
+            inner_application,
+            "/ws/notifications/",
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(close_code, 4401)
+
+    async def test_invalid_token_rejected_with_4401(self):
+        communicator = WebsocketCommunicator(
+            inner_application,
+            "/ws/notifications/?token=invalid_jwt_token_payload",
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(close_code, 4401)
+
+    async def test_expired_token_rejected_with_4401(self):
+        communicator = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.expired_token_a}",
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(close_code, 4401)
+
+    async def test_inactive_user_rejected_with_4401(self):
+        await sync_to_async(User.objects.filter(id=self.user_a.id).update)(is_active=False)
+        communicator = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.token_a}",
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(close_code, 4401)
+
+    async def test_wrong_origin_rejected_on_full_application(self):
+        """AllowedHostsOriginValidator on full ASGI application rejects disallowed Origin."""
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/notifications/?token={self.token_a}",
+            headers=[(b"origin", b"http://malicious-attacker.com")],
+        )
+        connected, _ = await communicator.connect()
+        self.assertFalse(connected)
+
+    async def test_valid_origin_connects_on_full_application(self):
+        """AllowedHostsOriginValidator on full ASGI application allows matching Origin."""
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/notifications/?token={self.token_a}",
+            headers=[(b"origin", b"http://localhost:5173")],
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        await communicator.disconnect()
+
+    async def test_creating_notification_pushes_to_owner_and_nothing_to_different_user(self):
+        comm_a = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.token_a}",
+        )
+        comm_b = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.token_b}",
+        )
+
+        connected_a, _ = await comm_a.connect()
+        connected_b, _ = await comm_b.connect()
+        self.assertTrue(connected_a)
+        self.assertTrue(connected_b)
+
+        # Create notification for User A inside atomic block so on_commit triggers
+        def _create_notif():
+            with transaction.atomic():
+                return create_notification(
+                    recipient=self.user_a,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="Status Updated",
+                    message="Your application was accepted",
+                )
+
+        notif = await sync_to_async(_create_notif)()
+
+        # User A receives exactly one event
+        response = await comm_a.receive_json_from()
+        self.assertEqual(response["type"], "notification")
+        self.assertEqual(response["notification"]["id"], notif.id)
+        self.assertEqual(response["notification"]["title"], "Status Updated")
+
+        # Payload equals REST serializer output
+        expected_serialized = await sync_to_async(lambda: NotificationSerializer(notif).data)()
+        self.assertEqual(response["notification"], expected_serialized)
+
+        # User B receives nothing
+        self.assertTrue(await comm_b.receive_nothing())
+
+        await comm_a.disconnect()
+        await comm_b.disconnect()
+
+    async def test_client_message_cannot_subscribe_to_another_group(self):
+        communicator = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.token_a}",
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        # Client attempts to send subscription or action payload
+        await communicator.send_json_to({"action": "subscribe", "group": "user_notifications_9999"})
+
+        # Consumer ignores inbound client message and doesn't crash or send anything back
+        self.assertTrue(await communicator.receive_nothing())
+
+        await communicator.disconnect()
+
+    async def test_channel_layer_exception_does_not_break_notification_creation(self):
+        channel_layer = get_channel_layer()
+
+        def _create_notif():
+            with transaction.atomic():
+                return create_notification(
+                    recipient=self.user_a,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="Resilient Notif",
+                    message="Channel layer failure will not prevent DB save",
+                )
+
+        with patch.object(channel_layer, "group_send", side_effect=Exception("Redis connection lost")):
+            notif = await sync_to_async(_create_notif)()
+
+        # Notification is safely committed and saved in database
+        self.assertIsNotNone(notif.id)
+        saved_notif = await sync_to_async(Notification.objects.filter(id=notif.id).first)()
+        self.assertIsNotNone(saved_notif)
+        self.assertEqual(saved_notif.title, "Resilient Notif")
+
+    async def test_raw_true_save_does_not_push(self):
+        communicator = WebsocketCommunicator(
+            inner_application,
+            f"/ws/notifications/?token={self.token_a}",
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        notif = await sync_to_async(Notification)(
+            recipient=self.user_a,
+            notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+            title="Raw Save Notif",
+            message="Loaddata/fixture raw=True will not push",
+        )
+        # Call post_save with raw=True
+        await sync_to_async(post_save.send)(
+            sender=Notification,
+            instance=notif,
+            created=True,
+            raw=True,
+        )
+
+        self.assertTrue(await communicator.receive_nothing())
+        await communicator.disconnect()
+

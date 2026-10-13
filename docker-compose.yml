@@ -40,6 +40,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_CACHE_URL: redis://redis:6379/1
+      REDIS_CHANNEL_URL: redis://redis:6379/2
     ports:
       - "8000:8000"
     volumes:
@@ -65,6 +66,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_CACHE_URL: redis://redis:6379/1
+      REDIS_CHANNEL_URL: redis://redis:6379/2
     volumes:
       - ./backend:/app
     depends_on:
@@ -88,6 +90,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_CACHE_URL: redis://redis:6379/1
+      REDIS_CHANNEL_URL: redis://redis:6379/2
     volumes:
       - ./backend:/app
     depends_on:

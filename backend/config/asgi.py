@@ -12,5 +12,19 @@ import os
 from django.core.asgi import get_asgi_application
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+django_http_app = get_asgi_application()
 
-application = get_asgi_application()
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.security.websocket import AllowedHostsOriginValidator
+
+import apps.notifications.routing
+
+application = ProtocolTypeRouter({
+    "http": django_http_app,
+    "websocket": AllowedHostsOriginValidator(
+        URLRouter(
+            apps.notifications.routing.websocket_urlpatterns
+        )
+    ),
+})
+
