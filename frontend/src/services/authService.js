@@ -540,6 +540,16 @@ export const authService = {
    * and attempt server-side refresh token blacklisting.
    */
   logout: async () => {
+    const deviceToken = localStorage.getItem('fcm_device_token');
+    if (deviceToken) {
+      try {
+        await api.delete('/notifications/device-tokens/', { data: { token: deviceToken } });
+      } catch (e) {
+        console.error('[authService] fcm unregister error on logout:', e);
+      }
+      localStorage.removeItem('fcm_device_token');
+    }
+
     const refreshToken = localStorage.getItem('refresh_token');
     if (refreshToken) {
       try {

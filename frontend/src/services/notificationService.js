@@ -69,6 +69,32 @@ export const notificationService = {
       throw error;
     }
   },
+
+  /**
+   * Register or refresh an FCM web push device token
+   */
+  registerDeviceToken: async (token, platform = 'web') => {
+    try {
+      const response = await api.post('/notifications/device-tokens/', { token, platform });
+      return response.data;
+    } catch (error) {
+      console.error('[notificationService] registerDeviceToken error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Unregister an FCM device token for the authenticated user
+   */
+  unregisterDeviceToken: async (token) => {
+    try {
+      const response = await api.delete('/notifications/device-tokens/', { data: { token } });
+      return response.data;
+    } catch (error) {
+      console.error('[notificationService] unregisterDeviceToken error:', error);
+      throw error;
+    }
+  },
 };
 
 export default notificationService;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BellOff } from 'lucide-react';
+import app, { firebaseConfig } from '../../firebase';
 import { notificationService } from '../../services/notificationService';
 import { useNotificationSocket } from '../../hooks/useNotificationSocket';
 import EmptyState from '../common/EmptyState';
@@ -9,6 +10,8 @@ export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [pushState, setPushState] = useState('default'); // 'default' | 'enabled' | 'blocked' | 'unsupported'
+  const [pushLoading, setPushLoading] = useState(false);
   const dropdownRef = useRef(null);
 
   // Real-time WebSocket notification push listener
@@ -138,6 +141,110 @@ export default function NotificationBell() {
     });
   };
 
+  // Inspect push notification capability and current state (Requirement: never request permission on load)
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      !('serviceWorker' in navigator) ||
+      !firebaseConfig.apiKey ||
+      !firebaseConfig.projectId
+    ) {
+      setPushState('unsupported');
+      return;
+    }
+
+    const permission = Notification.permission;
+    if (permission === 'denied') {
+      setPushState('blocked');
+      return;
+    }
+
+    const savedToken = localStorage.getItem('fcm_device_token');
+    if (permission === 'granted' && savedToken) {
+      setPushState('enabled');
+    } else {
+      setPushState('default');
+    }
+  }, []);
+
+  // Request push permission ONLY upon user click (Requirement: on click only)
+  const handleEnablePush = async () => {
+    setPushLoading(true);
+    try {
+      if (typeof window === 'undefined' || !('Notification' in window)) {
+        setPushState('unsupported');
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission === 'denied') {
+        setPushState('blocked');
+        return;
+      }
+      if (permission !== 'granted') {
+        setPushState('default');
+        return;
+      }
+
+      // Dynamically import Firebase messaging to avoid upfront overhead
+      const { getMessaging, getToken } = await import('firebase/messaging');
+
+      const swUrl = `/firebase-messaging-sw.js?apiKey=${encodeURIComponent(
+        firebaseConfig.apiKey || ''
+      )}&projectId=${encodeURIComponent(
+        firebaseConfig.projectId || ''
+      )}&messagingSenderId=${encodeURIComponent(
+        firebaseConfig.messagingSenderId || ''
+      )}&appId=${encodeURIComponent(firebaseConfig.appId || '')}`;
+
+      const registration = await navigator.serviceWorker.register(swUrl);
+      await navigator.serviceWorker.ready;
+
+      const messaging = getMessaging(app);
+      const tokenOptions = {
+        serviceWorkerRegistration: registration,
+      };
+      if (firebaseConfig.vapidKey) {
+        tokenOptions.vapidKey = firebaseConfig.vapidKey;
+      }
+
+      const token = await getToken(messaging, tokenOptions);
+      if (!token) {
+        throw new Error('FCM token registration did not return a token.');
+      }
+
+      await notificationService.registerDeviceToken(token, 'web');
+      localStorage.setItem('fcm_device_token', token);
+      setPushState('enabled');
+    } catch (err) {
+      console.error('Failed to enable push notifications:', err);
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  // Turn off push notifications for this browser
+  const handleDisablePush = async () => {
+    setPushLoading(true);
+    try {
+      const token = localStorage.getItem('fcm_device_token');
+      if (token) {
+        try {
+          await notificationService.unregisterDeviceToken(token);
+        } catch (err) {
+          console.warn('Failed to unregister token on backend:', err);
+        }
+        localStorage.removeItem('fcm_device_token');
+      }
+      setPushState(Notification.permission === 'denied' ? 'blocked' : 'default');
+    } catch (err) {
+      console.error('Failed to disable push notifications:', err);
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
   return (
     <div className="notification-bell-container" ref={dropdownRef}>
       <button
@@ -220,6 +327,40 @@ export default function NotificationBell() {
                 </div>
               ))
             )}
+          </div>
+
+          <div className="notification-dropdown-footer">
+            <div className="push-status-row">
+              <div className="push-status-info">
+                <span className="push-status-title">Push alerts</span>
+                <span className="push-status-subtitle">
+                  {pushState === 'enabled' && 'Active on this browser'}
+                  {pushState === 'blocked' && 'Push blocked in browser settings'}
+                  {pushState === 'unsupported' && 'Not supported on this browser'}
+                  {pushState === 'default' && 'Disabled'}
+                </span>
+              </div>
+              {pushState === 'default' && (
+                <button
+                  type="button"
+                  className="push-status-btn push-enable-btn"
+                  onClick={handleEnablePush}
+                  disabled={pushLoading}
+                >
+                  {pushLoading ? 'Enabling...' : 'Enable'}
+                </button>
+              )}
+              {pushState === 'enabled' && (
+                <button
+                  type="button"
+                  className="push-status-btn push-disable-btn"
+                  onClick={handleDisablePush}
+                  disabled={pushLoading}
+                >
+                  {pushLoading ? 'Disabling...' : 'Turn off'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

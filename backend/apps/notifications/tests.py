@@ -1,13 +1,29 @@
+import json
+import logging
 from datetime import date, timedelta
+from unittest.mock import MagicMock, mock_open, patch
+
+import requests
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import transaction
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.opportunities.models import Application, Opportunity
 from apps.opportunities.tasks import close_expired_opportunities
-from .models import Notification
+from .fcm import (
+    FCMTransientError,
+    check_project_id_mismatch,
+    get_fcm_credentials,
+    reset_fcm_cache,
+    send_fcm_v1_message,
+)
+from .models import DeviceToken, Notification
+from .services import create_notification
+from .tasks import send_push_notification
 
 User = get_user_model()
 
@@ -465,4 +481,685 @@ class NotificationWebSocketTests(TransactionTestCase):
 
         self.assertTrue(await communicator.receive_nothing())
         await communicator.disconnect()
+
+
+class DeviceTokenAPITests(APITestCase):
+    def setUp(self):
+        self.user_a = User.objects.create_user(
+            email="token_user_a@example.com",
+            password="Password123!",
+            full_name="User A",
+            role="student",
+            is_verified=True,
+        )
+        self.user_b = User.objects.create_user(
+            email="token_user_b@example.com",
+            password="Password123!",
+            full_name="User B",
+            role="student",
+            is_verified=True,
+        )
+        self.tokens_url = reverse("notifications:device-tokens")
+        cache.clear()
+
+    def test_register_device_token_authenticated(self):
+        self.client.force_authenticate(user=self.user_a)
+        res = self.client.post(
+            self.tokens_url,
+            {"token": "sample_fcm_token_1234567890", "platform": "web"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data, {"status": "registered"})
+
+        token_obj = DeviceToken.objects.get(token="sample_fcm_token_1234567890")
+        self.assertEqual(token_obj.user, self.user_a)
+        self.assertEqual(token_obj.platform, "web")
+        self.assertTrue(token_obj.is_active)
+
+        # Re-registering existing token for same user returns 200 and updates last_seen_at
+        res_repeat = self.client.post(
+            self.tokens_url,
+            {"token": "sample_fcm_token_1234567890", "platform": "web"},
+            format="json",
+        )
+        self.assertEqual(res_repeat.status_code, status.HTTP_200_OK)
+
+    def test_reassign_device_token_across_users(self):
+        # User A registers token first
+        self.client.force_authenticate(user=self.user_a)
+        self.client.post(
+            self.tokens_url,
+            {"token": "shared_browser_token_1234567890", "platform": "web"},
+            format="json",
+        )
+        self.assertEqual(DeviceToken.objects.filter(user=self.user_a).count(), 1)
+
+        # User B registers same token from shared browser
+        self.client.force_authenticate(user=self.user_b)
+        res_b = self.client.post(
+            self.tokens_url,
+            {"token": "shared_browser_token_1234567890", "platform": "web"},
+            format="json",
+        )
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+
+        # Token is now owned by User B, User A has 0 tokens
+        token_obj = DeviceToken.objects.get(token="shared_browser_token_1234567890")
+        self.assertEqual(token_obj.user, self.user_b)
+        self.assertEqual(DeviceToken.objects.filter(user=self.user_a).count(), 0)
+
+    def test_unregister_device_token_authenticated(self):
+        DeviceToken.objects.create(
+            user=self.user_a,
+            token="token_to_remove_1234567890",
+            platform="web",
+        )
+        self.client.force_authenticate(user=self.user_a)
+        res = self.client.delete(
+            self.tokens_url,
+            {"token": "token_to_remove_1234567890"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(DeviceToken.objects.filter(token="token_to_remove_1234567890").exists())
+
+    def test_unregister_device_token_owned_by_another_user_returns_404(self):
+        DeviceToken.objects.create(
+            user=self.user_a,
+            token="user_a_private_token_12345",
+            platform="web",
+        )
+        self.client.force_authenticate(user=self.user_b)
+        res = self.client.delete(
+            self.tokens_url,
+            {"token": "user_a_private_token_12345"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        # Token still belongs to User A
+        self.assertTrue(DeviceToken.objects.filter(token="user_a_private_token_12345", user=self.user_a).exists())
+
+    def test_device_token_endpoint_unauthenticated(self):
+        res_post = self.client.post(
+            self.tokens_url,
+            {"token": "unauth_token_1234567890"},
+            format="json",
+        )
+        self.assertEqual(res_post.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        res_delete = self.client.delete(
+            self.tokens_url,
+            {"token": "unauth_token_1234567890"},
+            format="json",
+        )
+        self.assertEqual(res_delete.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_device_token_invalid_payload(self):
+        self.client.force_authenticate(user=self.user_a)
+        res_short = self.client.post(
+            self.tokens_url,
+            {"token": "short"},
+            format="json",
+        )
+        self.assertEqual(res_short.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res_delete_invalid = self.client.delete(
+            self.tokens_url,
+            {"token": ""},
+            format="json",
+        )
+        self.assertEqual(res_delete_invalid.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_device_token_throttling_31st_request_returns_429(self):
+        self.client.force_authenticate(user=self.user_a)
+        for i in range(30):
+            res = self.client.post(
+                self.tokens_url,
+                {"token": f"fcm_token_throttle_test_{i:04d}", "platform": "web"},
+                format="json",
+            )
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        res_31 = self.client.post(
+            self.tokens_url,
+            {"token": "fcm_token_throttle_test_0031", "platform": "web"},
+            format="json",
+        )
+        self.assertEqual(res_31.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+class FCMHttpV1ServiceTests(TestCase):
+    def setUp(self):
+        reset_fcm_cache()
+
+    def tearDown(self):
+        reset_fcm_cache()
+
+    @override_settings(FCM_ENABLED=False)
+    def test_get_credentials_returns_none_when_fcm_disabled(self):
+        creds, project_id = get_fcm_credentials()
+        self.assertIsNone(creds)
+        self.assertIsNone(project_id)
+
+    @override_settings(FCM_ENABLED=True, FIREBASE_CREDENTIALS_FILE="/nonexistent/path/creds.json")
+    def test_missing_credentials_file_logs_warning_once_and_returns_none(self):
+        with self.assertLogs("apps.notifications.fcm", level="WARNING") as cm:
+            creds, project_id = get_fcm_credentials()
+            self.assertIsNone(creds)
+            self.assertIsNone(project_id)
+            # Second call must not log another warning
+            get_fcm_credentials()
+
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("FCM credentials file not found", cm.output[0])
+
+    @override_settings(FCM_ENABLED=True, FIREBASE_CREDENTIALS_FILE="/mock/service-account.json")
+    def test_lazy_credential_loading_caching_and_refresh(self):
+        mock_json = json.dumps({"project_id": "test-fcm-project-v1"})
+
+        with patch("os.path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=mock_json)):
+                with patch("google.oauth2.service_account.Credentials.from_service_account_file") as mock_from_file:
+                    mock_creds = MagicMock()
+                    mock_creds.valid = False
+                    mock_creds.token = "initial_token"
+                    mock_from_file.return_value = mock_creds
+
+                    # First call loads creds and refreshes because valid=False
+                    creds, project_id = get_fcm_credentials()
+                    self.assertEqual(project_id, "test-fcm-project-v1")
+                    self.assertEqual(creds, mock_creds)
+                    mock_from_file.assert_called_once()
+                    mock_creds.refresh.assert_called_once()
+
+                    # Second call with valid=True reuses module cache without refresh or re-reading
+                    mock_creds.valid = True
+                    mock_creds.refresh.reset_mock()
+                    creds2, project_id2 = get_fcm_credentials()
+                    self.assertEqual(creds2, mock_creds)
+                    self.assertEqual(project_id2, "test-fcm-project-v1")
+                    mock_creds.refresh.assert_not_called()
+                    self.assertEqual(mock_from_file.call_count, 1)
+
+    def test_project_id_mismatch_warning_logged_once(self):
+        with self.assertLogs("apps.notifications.fcm", level="WARNING") as cm:
+            check_project_id_mismatch("service_acct_proj", candidate="different_proj")
+            # Second call does not duplicate log
+            check_project_id_mismatch("service_acct_proj", candidate="different_proj")
+
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Firebase project mismatch detected", cm.output[0])
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_success_with_explicit_timeout(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_creds.token = "oauth2_bearer_token"
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        res = send_fcm_v1_message(
+            device_token="device_token_xyz_12345",
+            title="Gig Opportunity",
+            body="New freelance project available",
+            data={"notification_id": "42", "notification_type": "new_gig"},
+            link="/dashboard",
+        )
+
+        self.assertEqual(res, {"status": "ok"})
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs.get("timeout"), 10)
+        self.assertEqual(kwargs.get("headers", {}).get("Authorization"), "Bearer oauth2_bearer_token")
+        self.assertEqual(
+            mock_post.call_args[0][0],
+            "https://fcm.googleapis.com/v1/projects/test-project-123/messages:send",
+        )
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_unregistered_deactivates(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_creds.token = "token"
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {
+            "error": {
+                "status": "INVALID_ARGUMENT",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+                        "errorCode": "UNREGISTERED",
+                    }
+                ],
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        res = send_fcm_v1_message(
+            device_token="unregistered_token_12345",
+            title="Title",
+            body="Body",
+        )
+        self.assertEqual(res.get("status"), "deactivate")
+        self.assertEqual(res.get("error"), "UNREGISTERED")
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_not_found_deactivates(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.json.return_value = {"error": {"status": "NOT_FOUND"}}
+        mock_post.return_value = mock_resp
+
+        res = send_fcm_v1_message(
+            device_token="not_found_token_12345",
+            title="Title",
+            body="Body",
+        )
+        self.assertEqual(res.get("status"), "deactivate")
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_invalid_argument_deactivates(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {
+            "error": {
+                "status": "INVALID_ARGUMENT",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+                        "errorCode": "INVALID_ARGUMENT",
+                    }
+                ],
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        res = send_fcm_v1_message(
+            device_token="invalid_arg_token_12345",
+            title="Title",
+            body="Body",
+        )
+        self.assertEqual(res.get("status"), "deactivate")
+        self.assertEqual(res.get("error"), "INVALID_ARGUMENT")
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_429_raises_transient_error(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 429
+        mock_post.return_value = mock_resp
+
+        with self.assertRaises(FCMTransientError):
+            send_fcm_v1_message("token_12345", "Title", "Body")
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_503_raises_transient_error(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_post.return_value = mock_resp
+
+        with self.assertRaises(FCMTransientError):
+            send_fcm_v1_message("token_12345", "Title", "Body")
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_timeout_raises_transient_error(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+        mock_post.side_effect = requests.Timeout("Read timeout")
+
+        with self.assertRaises(FCMTransientError):
+            send_fcm_v1_message("token_12345", "Title", "Body")
+
+    @patch("apps.notifications.fcm.get_fcm_credentials")
+    @patch("requests.post")
+    def test_fcm_v1_send_permission_denied_gives_up(self, mock_post, mock_get_creds):
+        mock_creds = MagicMock()
+        mock_get_creds.return_value = (mock_creds, "test-project-123")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_resp.json.return_value = {"error": {"status": "PERMISSION_DENIED"}}
+        mock_post.return_value = mock_resp
+
+        res = send_fcm_v1_message("token_12345", "Title", "Body")
+        self.assertEqual(res.get("status"), "error")
+        self.assertEqual(res.get("error"), "PERMISSION_DENIED")
+
+
+class FCMPushCeleryTaskTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="push_recipient@example.com",
+            password="Password123!",
+            full_name="Push Recipient",
+            role="student",
+            is_verified=True,
+        )
+        self.other_user = User.objects.create_user(
+            email="other_push_user@example.com",
+            password="Password123!",
+            full_name="Other User",
+            role="student",
+            is_verified=True,
+        )
+        self.notification = Notification.objects.create(
+            recipient=self.user,
+            title="Interview Requested",
+            message="You have been invited to interview.",
+            notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+        )
+
+    @override_settings(FCM_ENABLED=False)
+    def test_task_skipped_when_fcm_disabled(self):
+        res = send_push_notification(self.notification.id)
+        self.assertEqual(res, "fcm_disabled")
+
+    @override_settings(FCM_ENABLED=True)
+    def test_task_skipped_when_no_active_tokens(self):
+        res = send_push_notification(self.notification.id)
+        self.assertEqual(res, "no_active_tokens")
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_task_delivers_to_active_tokens_only_and_payload_isolated(self, mock_send):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="active_token_1234567890",
+            is_active=True,
+        )
+        DeviceToken.objects.create(
+            user=self.user,
+            token="inactive_token_9876543210",
+            is_active=False,
+        )
+
+        mock_send.return_value = {"status": "ok"}
+
+        res = send_push_notification(self.notification.id)
+        self.assertEqual(res, "done")
+        self.assertEqual(mock_send.call_count, 1)
+
+        _, kwargs = mock_send.call_args
+        self.assertEqual(kwargs.get("device_token"), "active_token_1234567890")
+        self.assertEqual(kwargs.get("title"), "Interview Requested")
+        self.assertEqual(kwargs.get("body"), "You have been invited to interview.")
+        self.assertEqual(
+            kwargs.get("data"),
+            {
+                "notification_id": str(self.notification.id),
+                "notification_type": str(Notification.NotificationType.APPLICATION_STATUS_CHANGED),
+            },
+        )
+        # Ensure recipient email and private fields are NOT passed
+        self.assertNotIn("email", kwargs.get("data"))
+        self.assertNotIn("push_recipient@example.com", str(kwargs))
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_task_deactivates_unregistered_token(self, mock_send):
+        token = DeviceToken.objects.create(
+            user=self.user,
+            token="dead_token_1234567890",
+            is_active=True,
+        )
+        mock_send.return_value = {"status": "deactivate", "error": "UNREGISTERED"}
+
+        res = send_push_notification(self.notification.id)
+        self.assertEqual(res, "done")
+
+        token.refresh_from_db()
+        self.assertFalse(token.is_active)
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_task_retries_on_transient_error(self, mock_send):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="token_for_retry_12345",
+            is_active=True,
+        )
+        mock_send.side_effect = FCMTransientError("Rate limit 429")
+
+        with patch.object(send_push_notification, "retry", side_effect=Exception("TaskRetried")) as mock_retry:
+            with self.assertRaises(Exception) as cm:
+                send_push_notification(self.notification.id)
+            self.assertEqual(str(cm.exception), "TaskRetried")
+            mock_retry.assert_called_once()
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_user_a_tokens_never_dispatched_for_user_b(self, mock_send):
+        token_a = DeviceToken.objects.create(
+            user=self.user,
+            token="token_user_a_only_12345",
+            is_active=True,
+        )
+        token_b = DeviceToken.objects.create(
+            user=self.other_user,
+            token="token_user_b_only_12345",
+            is_active=True,
+        )
+
+        mock_send.return_value = {"status": "ok"}
+        send_push_notification(self.notification.id)
+
+        # Only Token A called, Token B never called
+        self.assertEqual(mock_send.call_count, 1)
+        self.assertEqual(mock_send.call_args[1].get("device_token"), token_a.token)
+        self.assertNotEqual(mock_send.call_args[1].get("device_token"), token_b.token)
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_logging_never_exposes_device_tokens(self, mock_send):
+        secret_token_val = "SECRET_FCM_DEVICE_TOKEN_XYZ_9999"
+        DeviceToken.objects.create(
+            user=self.user,
+            token=secret_token_val,
+            is_active=True,
+        )
+        mock_send.return_value = {"status": "ok"}
+
+        with self.assertLogs("apps.notifications.tasks", level="INFO") as cm:
+            send_push_notification(self.notification.id)
+
+        for log_line in cm.output:
+            self.assertNotIn(secret_token_val, log_line)
+            self.assertIn(f"notification {self.notification.id}", log_line)
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_task_retry_only_resends_failed_token_and_does_not_duplicate_success(self, mock_send):
+        token_1 = DeviceToken.objects.create(
+            user=self.user,
+            token="token_success_12345",
+            is_active=True,
+        )
+        token_2 = DeviceToken.objects.create(
+            user=self.user,
+            token="token_fail_12345",
+            is_active=True,
+        )
+
+        def _send_side_effect(device_token, **kwargs):
+            if device_token == token_1.token:
+                return {"status": "ok"}
+            elif device_token == token_2.token:
+                raise FCMTransientError("Rate limit 429")
+            return {"status": "error"}
+
+        mock_send.side_effect = _send_side_effect
+
+        with patch.object(send_push_notification, "retry", side_effect=Exception("TaskRetried")) as mock_retry:
+            with self.assertRaises(Exception) as cm:
+                send_push_notification(self.notification.id)
+            self.assertEqual(str(cm.exception), "TaskRetried")
+            mock_retry.assert_called_once()
+            retry_args = mock_retry.call_args[1].get("args") or mock_retry.call_args[0]
+            # retry is called with only the second token's id
+            self.assertEqual(retry_args[0], self.notification.id)
+            self.assertEqual(retry_args[1], [token_2.id])
+
+        # Both tokens were attempted in the first run (token 1 succeeded, token 2 failed)
+        self.assertEqual(mock_send.call_count, 2)
+
+        # Now simulate the retry run: invoke task with token_ids=[token_2.id]
+        mock_send.reset_mock()
+        mock_send.side_effect = None
+        mock_send.return_value = {"status": "ok"}
+
+        retry_result = send_push_notification(self.notification.id, token_ids=[token_2.id])
+        self.assertEqual(retry_result, "done")
+        # Token 1 is NOT sent twice; mock_send is called ONLY once for token 2
+        self.assertEqual(mock_send.call_count, 1)
+        self.assertEqual(mock_send.call_args[1].get("device_token"), token_2.token)
+
+    @override_settings(FCM_ENABLED=True)
+    @patch("apps.notifications.tasks.send_fcm_v1_message")
+    def test_task_max_retries_exceeded_does_not_raise(self, mock_send):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="token_always_transient_12345",
+            is_active=True,
+        )
+        mock_send.side_effect = FCMTransientError("Service Unavailable 503")
+
+        with patch.object(
+            send_push_notification,
+            "retry",
+            side_effect=send_push_notification.MaxRetriesExceededError("Max retries exceeded"),
+        ):
+            # Calling task when max retries exceeded must NOT raise an exception
+            res = send_push_notification(self.notification.id)
+            self.assertEqual(res, "max_retries_exceeded")
+
+
+class FCMSignalIntegrationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="signal_push_user@example.com",
+            password="Password123!",
+            full_name="Signal User",
+            role="student",
+            is_verified=True,
+        )
+
+    @override_settings(FCM_ENABLED=True)
+    def test_signal_enqueues_celery_task_when_tokens_exist(self):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="signal_active_token_12345",
+            is_active=True,
+        )
+        with patch("apps.notifications.tasks.send_push_notification.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                notif = create_notification(
+                    recipient=self.user,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="Signal Enqueue Test",
+                    message="Testing task delay on commit",
+                )
+
+            mock_delay.assert_called_once_with(notif.id)
+
+    @override_settings(FCM_ENABLED=True)
+    def test_signal_does_not_enqueue_when_no_active_tokens(self):
+        with patch("apps.notifications.tasks.send_push_notification.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                create_notification(
+                    recipient=self.user,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="No Tokens Test",
+                    message="No active tokens exists",
+                )
+
+            mock_delay.assert_not_called()
+
+    @override_settings(FCM_ENABLED=False)
+    def test_signal_does_not_enqueue_when_fcm_disabled(self):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="disabled_fcm_token_12345",
+            is_active=True,
+        )
+        with patch("apps.notifications.tasks.send_push_notification.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                create_notification(
+                    recipient=self.user,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="FCM Disabled Test",
+                    message="Flag is disabled",
+                )
+
+            mock_delay.assert_not_called()
+
+    @override_settings(FCM_ENABLED=True)
+    def test_signal_raw_true_does_not_enqueue(self):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="raw_true_token_12345",
+            is_active=True,
+        )
+        with patch("apps.notifications.tasks.send_push_notification.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                notif = Notification(
+                    recipient=self.user,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="Raw True Notification",
+                    message="Loaddata raw=True test",
+                )
+                from django.db.models.signals import post_save
+                post_save.send(
+                    sender=Notification,
+                    instance=notif,
+                    created=True,
+                    raw=True,
+                )
+
+            mock_delay.assert_not_called()
+
+    @override_settings(FCM_ENABLED=True)
+    def test_signal_celery_broker_failure_does_not_break_db_save(self):
+        DeviceToken.objects.create(
+            user=self.user,
+            token="resilient_token_12345",
+            is_active=True,
+        )
+        with patch(
+            "apps.notifications.tasks.send_push_notification.delay",
+            side_effect=Exception("Celery broker connection refused"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                notif = create_notification(
+                    recipient=self.user,
+                    notification_type=Notification.NotificationType.APPLICATION_STATUS_CHANGED,
+                    title="Resilient DB Notification",
+                    message="Failure in Celery must not prevent DB commit",
+                )
+
+            self.assertIsNotNone(notif.id)
+            self.assertTrue(Notification.objects.filter(id=notif.id).exists())
+
 

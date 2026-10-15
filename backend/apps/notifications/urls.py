@@ -5,6 +5,7 @@ from .views import (
     NotificationDeleteView,
     NotificationListAPIView,
     UnreadNotificationCountView,
+    DeviceTokenAPIView,
 )
 
 app_name = "notifications"
@@ -15,4 +16,5 @@ urlpatterns = [
     path("<int:pk>/read/", MarkNotificationReadView.as_view(), name="notification-mark-read"),
     path("mark-all-read/", MarkAllNotificationsReadView.as_view(), name="notification-mark-all-read"),
     path("<int:pk>/", NotificationDeleteView.as_view(), name="notification-delete"),
+    path("device-tokens/", DeviceTokenAPIView.as_view(), name="device-tokens"),
 ]

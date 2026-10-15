@@ -49,4 +49,19 @@ def notification_post_save_push(sender, instance, created, **kwargs):
                 type(exc).__name__,
             )
 
+        # Trigger FCM Web Push if enabled and user has active tokens
+        try:
+            from django.conf import settings
+            if getattr(settings, "FCM_ENABLED", False):
+                from .models import DeviceToken
+                if DeviceToken.objects.filter(user_id=recipient_id, is_active=True).exists():
+                    from .tasks import send_push_notification
+                    send_push_notification.delay(instance.id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to enqueue FCM push notification task for notification %s: %s",
+                instance.id,
+                type(exc).__name__,
+            )
+
     transaction.on_commit(_push)

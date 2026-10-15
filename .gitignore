@@ -26,6 +26,8 @@ Thumbs.db
 # Firebase Credentials
 **/firebase-credentials.json
 backend/config/firebase-credentials.json
+backend/firebase-service-account.json
+**/firebase-service-account*.json
 
 # Celery Beat
 celerybeat-schedule*

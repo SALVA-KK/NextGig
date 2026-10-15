@@ -41,6 +41,8 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_CACHE_URL: redis://redis:6379/1
       REDIS_CHANNEL_URL: redis://redis:6379/2
+      FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
+      FCM_ENABLED: ${FCM_ENABLED:-false}
     ports:
       - "8000:8000"
     volumes:
@@ -67,6 +69,8 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_CACHE_URL: redis://redis:6379/1
       REDIS_CHANNEL_URL: redis://redis:6379/2
+      FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
+      FCM_ENABLED: ${FCM_ENABLED:-false}
     volumes:
       - ./backend:/app
     depends_on:
@@ -91,6 +95,8 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       REDIS_CACHE_URL: redis://redis:6379/1
       REDIS_CHANNEL_URL: redis://redis:6379/2
+      FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
+      FCM_ENABLED: ${FCM_ENABLED:-false}
     volumes:
       - ./backend:/app
     depends_on:

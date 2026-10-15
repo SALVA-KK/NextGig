@@ -3,6 +3,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema,
 from rest_framework import generics, serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.opportunities.views import OpportunityPagination
@@ -140,3 +141,70 @@ class NotificationDeleteView(APIView):
             {"message": "Notification deleted successfully."},
             status=status.HTTP_200_OK,
         )
+
+
+class DeviceTokenAPIView(APIView):
+    """
+    API endpoint to register/refresh or unregister an FCM device token.
+    - POST: Registers or reassigns a device token to the caller.
+    - DELETE: Unregisters a device token owned by the caller.
+    - Throttled with scope 'device_tokens'.
+    - No list endpoint; never exposes other users' tokens.
+    """
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "device_tokens"
+
+    def post(self, request, *args, **kwargs):
+        from .models import DeviceToken
+        from .serializers import DeviceTokenSerializer
+
+        serializer = DeviceTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token = serializer.validated_data["token"]
+        platform = serializer.validated_data.get("platform", "web")
+
+        # If token exists for another user, reassign it (shared browser)
+        device_token, created = DeviceToken.objects.update_or_create(
+            token=token,
+            defaults={
+                "user": request.user,
+                "platform": platform,
+                "is_active": True,
+            },
+        )
+        # Update last_seen_at
+        if not created:
+            device_token.last_seen_at = timezone.now()
+            device_token.is_active = True
+            device_token.save(update_fields=["last_seen_at", "is_active"])
+
+        return Response(
+            {"status": "registered"},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def delete(self, request, *args, **kwargs):
+        from .models import DeviceToken
+
+        token = request.data.get("token")
+        if not token or not isinstance(token, str) or len(token) < 10 or len(token) > 512:
+            return Response(
+                {"detail": "Invalid or missing token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deleted_count, _ = DeviceToken.objects.filter(
+            token=token,
+            user=request.user,
+        ).delete()
+
+        if deleted_count == 0:
+            return Response(
+                {"detail": "Device token not found or not owned by user."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

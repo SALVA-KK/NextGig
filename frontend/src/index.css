@@ -652,6 +652,74 @@ body {
   color: #ef4444;
 }
 
+.notification-dropdown-footer {
+  padding: 10px 16px;
+  background: var(--bg-surface-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
+.push-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.push-status-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.push-status-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.push-status-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.push-status-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.push-status-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.push-enable-btn {
+  background: var(--accent-indigo);
+  color: #ffffff;
+  border: 1px solid transparent;
+}
+
+.push-enable-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.push-disable-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.push-disable-btn:hover:not(:disabled) {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
 /* ==========================================================================
    SIDEBAR
    ========================================================================== */

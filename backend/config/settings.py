@@ -202,6 +202,7 @@ REST_FRAMEWORK = {
         "people_search_burst": "30/minute",
         "people_search_sustained": "300/hour",
         "people_detail": "60/minute",
+        "device_tokens": "30/minute",
     },
 }
 
@@ -421,5 +422,13 @@ if _raw_query_cache_ttl is not None and _raw_query_cache_ttl.strip() != "":
         ) from exc
 else:
     RAG_QUERY_CACHE_TTL_SECONDS = 86400
+
+# Firebase Cloud Messaging (FCM) Configuration
+_raw_fcm_enabled = os.getenv("FCM_ENABLED", "false").strip().lower()
+FCM_ENABLED = _raw_fcm_enabled in ("true", "1", "yes")
+FIREBASE_CREDENTIALS_FILE = os.getenv(
+    "FIREBASE_CREDENTIALS_FILE",
+    os.path.join(BASE_DIR, "firebase-service-account.json"),
+)
 
 

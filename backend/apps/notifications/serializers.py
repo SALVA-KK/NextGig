@@ -32,3 +32,8 @@ class NotificationSerializer(serializers.ModelSerializer):
             "application_id",
         )
         read_only_fields = fields
+
+
+class DeviceTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(min_length=10, max_length=512)
+    platform = serializers.CharField(max_length=50, required=False, default="web")
