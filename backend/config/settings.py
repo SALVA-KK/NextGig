@@ -379,6 +379,13 @@ else:
     _raw_use_rag = os.getenv("ASSISTANT_USE_RAG", "true")
     ASSISTANT_USE_RAG = _raw_use_rag.strip().lower() in ("true", "1", "yes")
 
+# Student Assistant LangChain flow feature flag (disabled under test runs)
+if TESTING:
+    ASSISTANT_USE_LANGCHAIN = False
+else:
+    _raw_use_langchain = os.getenv("ASSISTANT_USE_LANGCHAIN", "true")
+    ASSISTANT_USE_LANGCHAIN = _raw_use_langchain.strip().lower() in ("true", "1", "yes")
+
 # Minimum cosine similarity threshold for RAG retrieval (disabled by default)
 _raw_min_sim = os.getenv("RAG_MIN_SIMILARITY")
 if _raw_min_sim is not None and _raw_min_sim.strip() != "":
