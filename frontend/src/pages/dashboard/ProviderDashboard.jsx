@@ -16,7 +16,23 @@ import { opportunityService } from '../../services/opportunityService';
 export default function ProviderDashboard() {
   const location = useLocation();
   const [toastMessage, setToastMessage] = useState(location.state?.successMessage || null);
-  const [activeTab, setActiveTab] = useState('my-opportunities'); // 'my-opportunities' | 'explore' | 'post-opportunity' | 'applicants' | 'saved' | 'profile'
+  const [activeTab, setActiveTab] = useState(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get('tab');
+    if (tabParam && ['my-opportunities', 'post-opportunity', 'explore', 'applicants', 'saved', 'profile'].includes(tabParam)) {
+      return tabParam;
+    }
+    return 'my-opportunities';
+  }); // 'my-opportunities' | 'explore' | 'post-opportunity' | 'applicants' | 'saved' | 'profile'
+
+  // Sync URL search params for tab selection (e.g., when returning from /people)
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get('tab');
+    if (tabParam && ['my-opportunities', 'post-opportunity', 'explore', 'applicants', 'saved', 'profile'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     if (location.state?.successMessage) {

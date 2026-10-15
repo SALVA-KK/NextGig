@@ -145,6 +145,17 @@ export default function DashboardHeader({
             )}
           </nav>
         )}
+
+        {isProvider && (
+          <nav className="header-quick-nav">
+            <button
+              onClick={() => handleNavClick('people')}
+              className={`header-nav-btn ${location.pathname === '/people' || activeTab === 'people' ? 'active' : ''}`}
+            >
+              Find People
+            </button>
+          </nav>
+        )}
       </div>
 
 
