@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../../services/authService';
 import NotificationBell from './NotificationBell';
 
@@ -11,6 +11,7 @@ export default function DashboardHeader({
   onToggleSidebar
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = authService.getCurrentUser();
   const rawAdmin = authService.isAdmin();
   const userRole = user?.role || authService.getUserRole();
@@ -64,17 +65,30 @@ export default function DashboardHeader({
     if (tabName && setActiveTab) {
       setActiveTab(tabName);
     }
-    if (routePath) {
-      navigate(routePath);
+    const finalPath = (tabName && routePath === '/dashboard') ? `/dashboard?tab=${tabName}` : routePath;
+    if (finalPath) {
+      navigate(finalPath);
     }
   };
 
   const brandLink = isAdmin ? '/admin' : isProvider ? '/provider-dashboard' : '/dashboard';
 
   const handleNavClick = (tabName) => {
-    if (setActiveTab) setActiveTab(tabName);
-    const targetPath = isProvider ? '/provider-dashboard' : '/dashboard';
-    if (location.pathname !== targetPath) {
+    if (tabName === 'people') {
+      if (location.pathname !== '/people') {
+        navigate('/people');
+      }
+      return;
+    }
+
+    if (setActiveTab) {
+      setActiveTab(tabName);
+    }
+
+    const targetBase = isProvider ? '/provider-dashboard' : '/dashboard';
+    const targetPath = tabName === 'opportunities' ? targetBase : `${targetBase}?tab=${tabName}`;
+
+    if (location.pathname !== targetBase || (location.search !== `?tab=${tabName}` && tabName !== 'opportunities')) {
       navigate(targetPath);
     }
   };
@@ -99,24 +113,24 @@ export default function DashboardHeader({
           <span className="header-brand-title">NextGig</span>
         </Link>
 
-        {setActiveTab && !isProvider && (
+        {isStudent && (
           <nav className="header-quick-nav">
             <button
               onClick={() => handleNavClick('opportunities')}
-              className={`header-nav-btn ${activeTab === 'opportunities' ? 'active' : ''}`}
+              className={`header-nav-btn ${location.pathname === '/dashboard' && (activeTab === 'opportunities' || !activeTab) ? 'active' : ''}`}
             >
               Explore
             </button>
             <button
-              onClick={() => handleNavClick('collaborations')}
-              className={`header-nav-btn ${activeTab === 'collaborations' ? 'active' : ''}`}
+              onClick={() => handleNavClick('people')}
+              className={`header-nav-btn ${location.pathname === '/people' || activeTab === 'people' ? 'active' : ''}`}
             >
-              Find Students
+              Find People
             </button>
             {canViewSavedItems && (
               <button
                 onClick={() => handleNavClick('saved')}
-                className={`header-nav-btn ${activeTab === 'saved' ? 'active' : ''}`}
+                className={`header-nav-btn ${location.pathname === '/dashboard' && activeTab === 'saved' ? 'active' : ''}`}
               >
                 Saved
               </button>
@@ -124,7 +138,7 @@ export default function DashboardHeader({
             {canViewApplications && (
               <button
                 onClick={() => handleNavClick('applications')}
-                className={`header-nav-btn ${activeTab === 'applications' ? 'active' : ''}`}
+                className={`header-nav-btn ${location.pathname === '/dashboard' && activeTab === 'applications' ? 'active' : ''}`}
               >
                 Applications
               </button>

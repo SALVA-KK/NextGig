@@ -10,6 +10,7 @@ import ResetPassword from './pages/auth/ResetPassword';
 import InvitePage from './pages/auth/InvitePage';
 import UserDashboard from './pages/dashboard/UserDashboard';
 import ProviderDashboard from './pages/dashboard/ProviderDashboard';
+import People from './pages/dashboard/People';
 import ManageOpportunity from './pages/provider/ManageOpportunity';
 import Profile from './pages/profile/Profile';
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -51,6 +52,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['student']}>
               <UserDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/people"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <People />
             </ProtectedRoute>
           }
         />

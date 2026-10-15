@@ -12,7 +12,12 @@ import { opportunityService } from '../../services/opportunityService';
 
 export default function UserDashboard() {
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState('opportunities'); // 'opportunities' | 'saved' | 'applications'
+  const [activeTab, setActiveTab] = useState(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'saved' || tabParam === 'applications') return tabParam;
+    return 'opportunities';
+  }); // 'opportunities' | 'saved' | 'applications'
   const [oppSubTab, setOppSubTab] = useState('all'); // 'all' | 'recommended' | 'collaborations'
   const [opportunities, setOpportunities] = useState([]);
   const [savedItems, setSavedItems] = useState([]);
@@ -33,10 +38,17 @@ export default function UserDashboard() {
   // Detail Modal state
   const [selectedOpportunity, setSelectedOpportunity] = useState(null);
 
-  // Sync URL search params for tab/subTab selection (e.g., from notifications)
+  // Sync URL search params for tab/subTab selection (e.g., from notifications or navigation)
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    const subTabParam = searchParams.get('subTab') || searchParams.get('tab');
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'saved' || tabParam === 'applications') {
+      setActiveTab(tabParam);
+    } else if (tabParam === 'opportunities') {
+      setActiveTab('opportunities');
+    }
+
+    const subTabParam = searchParams.get('subTab') || (['recommended', 'collaborations', 'all'].includes(tabParam) ? tabParam : null);
     if (subTabParam === 'recommended') {
       setActiveTab('opportunities');
       setOppSubTab('recommended');
