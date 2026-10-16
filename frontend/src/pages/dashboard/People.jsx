@@ -37,100 +37,116 @@ function PersonAvatar({ src, name }) {
 
 function StudentCard({ person }) {
   const name = person.full_name || person.display_name || 'Student';
-  const skills = Array.isArray(person.skills) ? person.skills.slice(0, 5) : [];
+  const allSkills = Array.isArray(person.skills) ? person.skills : [];
+  const skills = allSkills.slice(0, 2);
+  const overflowCount = allSkills.length - 2;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors">
-      <div className="space-y-4">
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors h-full">
+      <div className="space-y-3 flex-1 flex flex-col">
         {/* Header: Avatar, Name, Role Badge */}
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-h-[50px]">
           <PersonAvatar src={person.profile_picture} name={name} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-base font-bold text-slate-900 truncate" title={name}>
                 {name}
               </h3>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-100">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-100 flex-shrink-0">
                 Student
               </span>
             </div>
-            {person.profession && (
+            {person.profession ? (
               <p className="text-xs font-medium text-slate-600 truncate mt-0.5" title={person.profession}>
                 {person.profession}
+              </p>
+            ) : (
+              <p className="text-xs font-medium text-transparent select-none mt-0.5">
+                &nbsp;
               </p>
             )}
           </div>
         </div>
 
         {/* Details: Institution / Qualification, City, Availability */}
-        <div className="space-y-2 pt-1 text-xs text-slate-600">
-          {(person.institution || person.qualification_name) && (
-            <div className="flex items-center gap-2">
-              <GraduationCap className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <span className="truncate" title={[person.qualification_name, person.institution].filter(Boolean).join(' • ')}>
-                {[person.qualification_name, person.institution].filter(Boolean).join(' • ')}
-              </span>
-            </div>
-          )}
+        <div className="space-y-1.5 pt-1 text-xs text-slate-600 min-h-[72px] flex flex-col justify-start">
+          <div className="flex items-center gap-2 min-h-[20px]">
+            {(person.institution || person.qualification_name) && (
+              <>
+                <GraduationCap className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span className="truncate" title={[person.qualification_name, person.institution].filter(Boolean).join(' • ')}>
+                  {[person.qualification_name, person.institution].filter(Boolean).join(' • ')}
+                </span>
+              </>
+            )}
+          </div>
 
-          {person.city && (
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <span className="truncate">{person.city}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 min-h-[20px]">
+            {person.city && (
+              <>
+                <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span className="truncate">{person.city}</span>
+              </>
+            )}
+          </div>
 
-          {person.availability && (
-            <div className="pt-1">
+          <div className="min-h-[22px] flex items-center">
+            {person.availability && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 {person.availability}
               </span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Skills chips */}
-      {skills.length > 0 && (
-        <div className="pt-4 border-t border-slate-100 mt-4">
-          <div className="flex flex-wrap gap-1.5">
+      {/* Skills chips in single row footer */}
+      <div className="pt-3 border-t border-slate-100 mt-4 min-h-[44px] flex items-center">
+        {skills.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-hidden flex-nowrap w-full">
             {skills.map((skill, index) => (
               <span
                 key={index}
-                className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200"
+                className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 truncate flex-shrink-0 max-w-[120px]"
+                title={skill}
               >
                 {skill}
               </span>
             ))}
+            {overflowCount > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 flex-shrink-0">
+                +{overflowCount}
+              </span>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
 function ProviderCard({ person }) {
-  const orgName = person.organization_name || person.display_name || 'Organization';
+  const orgName = person.organization_name || person.display_name || '—';
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors">
-      <div className="space-y-4">
-        {/* Header: Avatar, Organization Name, Verified Badge, Role Badge */}
-        <div className="flex items-start gap-3">
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors h-full">
+      <div className="space-y-3 flex-1 flex flex-col">
+        {/* Header: Avatar, Organization Name, Role Badge */}
+        <div className="flex items-start gap-3 min-h-[50px]">
           <PersonAvatar src={person.profile_picture} name={orgName} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-base font-bold text-slate-900 truncate" title={orgName}>
                 {orgName}
               </h3>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200 flex-shrink-0">
                 Provider
               </span>
             </div>
 
             {person.is_verified && (
-              <div className="mt-1.5">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <div className="mt-1">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Verified
                 </span>
@@ -140,22 +156,31 @@ function ProviderCard({ person }) {
         </div>
 
         {/* Details: Organization Type, City */}
-        <div className="space-y-2 pt-1 text-xs text-slate-600">
-          {person.organization_type && (
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <span className="truncate capitalize">{person.organization_type.replace('_', ' ')}</span>
-            </div>
-          )}
+        <div className="space-y-1.5 pt-1 text-xs text-slate-600 min-h-[72px] flex flex-col justify-start">
+          <div className="flex items-center gap-2 min-h-[20px]">
+            {person.organization_type && (
+              <>
+                <Building2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span className="truncate capitalize">{person.organization_type.replace('_', ' ')}</span>
+              </>
+            )}
+          </div>
 
-          {person.city && (
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <span className="truncate">{person.city}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 min-h-[20px]">
+            {person.city && (
+              <>
+                <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span className="truncate">{person.city}</span>
+              </>
+            )}
+          </div>
+
+          <div className="min-h-[22px] flex items-center" />
         </div>
       </div>
+
+      {/* Footer slot matching StudentCard height */}
+      <div className="pt-3 border-t border-slate-100 mt-4 min-h-[44px] flex items-center" />
     </div>
   );
 }
@@ -349,7 +374,7 @@ export default function People() {
         {/* Cards Grid */}
         {!loading && !error && people.length > 0 && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 auto-rows-fr items-stretch">
               {people.map((person) =>
                 person.role === 'provider' ? (
                   <ProviderCard key={`provider-${person.user_id}`} person={person} />

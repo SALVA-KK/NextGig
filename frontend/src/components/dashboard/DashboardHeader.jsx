@@ -88,9 +88,9 @@ export default function DashboardHeader({
     }
 
     const targetBase = isProvider ? '/provider-dashboard' : '/dashboard';
-    const targetPath = tabName === 'opportunities' ? targetBase : `${targetBase}?tab=${tabName}`;
+    const targetPath = (!isProvider && tabName === 'opportunities') ? targetBase : `${targetBase}?tab=${tabName}`;
 
-    if (location.pathname !== targetBase || (location.search !== `?tab=${tabName}` && tabName !== 'opportunities')) {
+    if (location.pathname !== targetBase || (location.search !== `?tab=${tabName}` && (isProvider || tabName !== 'opportunities'))) {
       navigate(targetPath);
     }
   };
@@ -129,54 +129,22 @@ export default function DashboardHeader({
             >
               Find People
             </button>
-            {canViewSavedItems && (
-              <button
-                onClick={() => handleNavClick('saved')}
-                className={`header-nav-btn ${location.pathname === '/dashboard' && activeTab === 'saved' ? 'active' : ''}`}
-              >
-                Saved
-              </button>
-            )}
-            {canViewApplications && (
-              <button
-                onClick={() => handleNavClick('applications')}
-                className={`header-nav-btn ${location.pathname === '/dashboard' && activeTab === 'applications' ? 'active' : ''}`}
-              >
-                Applications
-              </button>
-            )}
-            <button
-              onClick={() => navigate('/chat')}
-              className={`header-nav-btn flex items-center gap-1.5 ${location.pathname === '/chat' ? 'active' : ''}`}
-            >
-              <span>Chat</span>
-              {chatUnreadCount > 0 && (
-                <span className="inline-flex items-center justify-center px-1.5 py-0.2 text-[10px] font-bold text-white bg-indigo-600 rounded-full">
-                  {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                </span>
-              )}
-            </button>
           </nav>
         )}
 
         {isProvider && (
           <nav className="header-quick-nav">
             <button
+              onClick={() => handleNavClick('explore')}
+              className={`header-nav-btn ${location.pathname === '/provider-dashboard' && activeTab === 'explore' ? 'active' : ''}`}
+            >
+              Explore
+            </button>
+            <button
               onClick={() => handleNavClick('people')}
               className={`header-nav-btn ${location.pathname === '/people' || activeTab === 'people' ? 'active' : ''}`}
             >
               Find People
-            </button>
-            <button
-              onClick={() => navigate('/chat')}
-              className={`header-nav-btn flex items-center gap-1.5 ${location.pathname === '/chat' ? 'active' : ''}`}
-            >
-              <span>Chat</span>
-              {chatUnreadCount > 0 && (
-                <span className="inline-flex items-center justify-center px-1.5 py-0.2 text-[10px] font-bold text-white bg-indigo-600 rounded-full">
-                  {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                </span>
-              )}
             </button>
           </nav>
         )}
@@ -186,15 +154,25 @@ export default function DashboardHeader({
       <div className="header-right">
         <Link
           to="/chat"
-          className="relative p-2 text-slate-600 hover:text-indigo-600 transition-colors flex items-center justify-center"
-          title="Chat"
-          aria-label="Chat"
+          className={`notification-bell-btn ${location.pathname === '/chat' ? 'active' : ''}`}
+          title="Messages"
+          aria-label="Messages"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            className="notification-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
           </svg>
           {chatUnreadCount > 0 && (
-            <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold text-white">
+            <span className="notification-badge">
               {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
             </span>
           )}

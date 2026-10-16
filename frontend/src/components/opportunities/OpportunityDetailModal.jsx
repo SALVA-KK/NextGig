@@ -159,12 +159,18 @@ export default function OpportunityDetailModal({
                   <button
                     type="button"
                     onClick={() => onSaveToggle(id)}
-                    className={`btn-modal-save ${isSaved ? 'saved' : ''}`}
+                    className={`opp-save-btn ${isSaved ? 'saved' : ''}`}
+                    title={isSaved ? 'Remove from saved' : 'Save opportunity'}
+                    aria-label={isSaved ? 'Remove from saved' : 'Save opportunity'}
+                    aria-pressed={!!isSaved}
+                    style={{
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--bg-surface)'
+                    }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill={isSaved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
                       <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
                     </svg>
-                    {isSaved ? 'Saved' : 'Save Item'}
                   </button>
 
                   <button type="submit" disabled={submitting} className="btn-modal-submit">

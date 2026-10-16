@@ -57,17 +57,12 @@ export const opportunityService = {
    * Toggle save/bookmark opportunity
    */
   async toggleSaveOpportunity(id, isSaved) {
-    try {
-      if (isSaved) {
-        await api.delete(`/opportunities/${id}/save/`);
-      } else {
-        await api.post(`/opportunities/${id}/save/`);
-      }
-      return true;
-    } catch (error) {
-      console.warn('Backend save toggle failed, handling locally', error);
-      return true;
+    if (isSaved) {
+      await api.delete(`/opportunities/${id}/save/`);
+    } else {
+      await api.post(`/opportunities/${id}/save/`);
     }
+    return true;
   },
 
   /**

@@ -133,6 +133,7 @@ export default function OpportunityDetail() {
       setIsSaved(!isSaved);
     } catch (err) {
       console.error('Save toggle error:', err);
+      toast.error('Could not update saved items. Please try again.');
     } finally {
       setSaveLoading(false);
     }
@@ -226,53 +227,69 @@ export default function OpportunityDetail() {
       <div style={{ maxWidth: '880px', margin: '24px auto', padding: '0 20px 60px' }}>
         
         {/* Back Navigation Bar */}
-        <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center' }}>
           <button
+            type="button"
             onClick={() => navigate(-1)}
             className="btn-secondary"
-            style={{ padding: '8px 16px', fontSize: '13px' }}
+            aria-label="Back to opportunities"
+            title="Back to opportunities"
+            style={{
+              width: '36px',
+              height: '36px',
+              minWidth: '36px',
+              minHeight: '36px',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 'var(--radius-md)',
+            }}
           >
-            ← Back to Opportunities
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
           </button>
-
-          {isAuthenticated && isStudent && (
-            <button
-              onClick={handleSaveToggle}
-              disabled={saveLoading}
-              className={`btn-secondary ${isSaved ? 'saved' : ''}`}
-              style={{
-                padding: '8px 16px',
-                fontSize: '13px',
-                borderColor: isSaved ? 'var(--accent-indigo)' : 'var(--border-color)',
-                color: isSaved ? 'var(--accent-indigo)' : 'var(--text-main)'
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill={isSaved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" style={{ marginRight: '6px' }}>
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-              </svg>
-              {isSaved ? 'Saved to Wishlist' : 'Bookmark'}
-            </button>
-          )}
         </div>
 
         {/* Main Card Container */}
         <div className="auth-card" style={{ padding: '36px 32px', boxShadow: 'var(--shadow-card-hover)', borderRadius: '16px' }}>
           
-          {/* Header Badges */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
-            <span className={`opp-category-badge cat-${category}`}>
-              {formatCategory(category)}
-            </span>
-            {is_student_project && (
-              <span className="modal-student-tag">
-                Student Project
+          {/* Header Badges & Save Action Row */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span className={`opp-category-badge cat-${category}`}>
+                {formatCategory(category)}
               </span>
-            )}
-            {work_mode && (
-              <span className="opp-workmode-badge">
-                <span className={`workmode-dot ${work_mode}`}></span>
-                {work_mode.charAt(0).toUpperCase() + work_mode.slice(1)}
-              </span>
+              {is_student_project && (
+                <span className="modal-student-tag">
+                  Student Project
+                </span>
+              )}
+              {work_mode && (
+                <span className="opp-workmode-badge">
+                  <span className={`workmode-dot ${work_mode}`}></span>
+                  {work_mode.charAt(0).toUpperCase() + work_mode.slice(1)}
+                </span>
+              )}
+            </div>
+
+            {isAuthenticated && isStudent && (
+              <button
+                type="button"
+                onClick={handleSaveToggle}
+                disabled={saveLoading}
+                className={`opp-save-btn ${isSaved ? 'saved' : ''}`}
+                title={isSaved ? 'Remove from saved' : 'Save opportunity'}
+                aria-label={isSaved ? 'Remove from saved' : 'Save opportunity'}
+                aria-pressed={!!isSaved}
+                style={{ flexShrink: 0 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill={isSaved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                </svg>
+              </button>
             )}
           </div>
 

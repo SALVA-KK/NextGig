@@ -89,20 +89,20 @@ export default function MyOpportunities({ onAddNew }) {
           </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {opportunities.map((opp) => (
             <div
               key={opp.id}
               onClick={() => navigate(`/provider-dashboard/opportunities/${opp.id}`)}
-              className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 cursor-pointer transition-colors active:bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 cursor-pointer transition-colors active:bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:min-h-[84px]"
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
-                  <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              <div className="flex-1 min-w-0 w-full">
+                <div className="flex items-center gap-2.5 mb-1.5 flex-nowrap">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate max-w-xl" title={opp.title}>
                     {opp.title}
                   </h3>
                   <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider flex-shrink-0 ${
                       opp.status === 'open'
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : 'bg-slate-100 text-slate-600 border border-slate-200'
@@ -112,13 +112,13 @@ export default function MyOpportunities({ onAddNew }) {
                   </span>
                 </div>
                 <div className="text-xs font-medium text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
-                  <span>
+                  <span className="whitespace-nowrap">
                     <strong className="text-slate-700">Category:</strong> {opp.category?.replace('_', ' ')}
                   </span>
-                  <span>
+                  <span className="whitespace-nowrap">
                     <strong className="text-slate-700">Posted:</strong> {new Date(opp.created_at).toLocaleDateString()}
                   </span>
-                  <span>
+                  <span className="whitespace-nowrap">
                     <strong className="text-slate-700">Applicants:</strong> {opp.applicants_count ?? 0}
                   </span>
                 </div>

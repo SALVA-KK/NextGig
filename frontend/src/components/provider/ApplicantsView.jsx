@@ -351,32 +351,67 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                 </div>
 
                 {/* Skills Tags */}
-                {applicantObj.skills && applicantObj.skills.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {applicantObj.skills.map((skill, sIdx) => (
-                      <span key={sIdx} className="skill-tag" style={{ fontSize: '11px', padding: '2px 8px' }}>
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', height: '26px', minHeight: '26px' }}>
+                  {applicantObj.skills && applicantObj.skills.length > 0 ? (
+                    <>
+                      {applicantObj.skills.slice(0, 3).map((skill, sIdx) => (
+                        <span key={sIdx} className="skill-tag" title={skill} style={{ fontSize: '11px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                          {skill}
+                        </span>
+                      ))}
+                      {applicantObj.skills.length > 3 && (
+                        <span className="skill-tag overflow" style={{ fontSize: '11px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                          +{applicantObj.skills.length - 3}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No skills specified</span>
+                  )}
+                </div>
 
-                {app.cover_note && (
+                {/* Cover Note: Clamped to 3 lines with tooltip for full text reachability */}
+                {app.cover_note ? (
                   <div
+                    title={app.cover_note}
                     style={{
-                      padding: '12px 16px',
+                      padding: '10px 14px',
                       backgroundColor: 'var(--bg-canvas)',
                       borderRadius: '8px',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       color: 'var(--text-main)',
-                      lineHeight: '1.5',
+                      lineHeight: '1.45',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      minHeight: '64px',
+                      maxHeight: '64px',
+                      cursor: 'help',
                     }}
                   >
                     <strong>Cover Note:</strong> {app.cover_note}
                   </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      backgroundColor: 'var(--bg-canvas)',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: 'var(--text-muted)',
+                      lineHeight: '1.45',
+                      minHeight: '64px',
+                      maxHeight: '64px',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span className="italic">No cover note provided by applicant.</span>
+                  </div>
                 )}
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginTop: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginTop: 'auto', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
                   <div>
                     {app.has_resume && app.resume_download_url ? (
                       <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px' }}>

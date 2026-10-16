@@ -16,6 +16,7 @@ import { opportunityService } from '../../services/opportunityService';
 export default function ProviderDashboard() {
   const location = useLocation();
   const [toastMessage, setToastMessage] = useState(location.state?.successMessage || null);
+  const [saveError, setSaveError] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get('tab');
@@ -126,6 +127,7 @@ export default function ProviderDashboard() {
   }, [savedItems]);
 
   const handleSaveToggle = async (oppId) => {
+    setSaveError(null);
     const isCurrentlySaved = savedIdsSet.has(oppId);
     try {
       await opportunityService.toggleSaveOpportunity(oppId, isCurrentlySaved);
@@ -136,6 +138,7 @@ export default function ProviderDashboard() {
       }
     } catch (err) {
       console.error('Error toggling saved opportunity:', err);
+      setSaveError('Could not update saved items. Please try again.');
     }
   };
 
@@ -217,6 +220,31 @@ export default function ProviderDashboard() {
               <span>{toastMessage}</span>
               <button
                 onClick={() => setToastMessage(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {saveError && (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: '8px',
+                marginBottom: '20px',
+                fontSize: '14px',
+                backgroundColor: '#fef2f2',
+                color: '#991b1b',
+                border: '1px solid #fecaca',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>{saveError}</span>
+              <button
+                onClick={() => setSaveError(null)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
               >
                 ×

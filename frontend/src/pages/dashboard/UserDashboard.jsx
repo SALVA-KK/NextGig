@@ -90,7 +90,7 @@ export default function UserDashboard() {
     try {
       let oppsData = { results: [], count: 0 };
       const [savedData, appsData] = await Promise.all([
-        opportunityService.getSavedOpportunities({ page: activeTab === 'saved' ? currentPage : 1 }),
+        opportunityService.getSavedOpportunities({ page: activeTab === 'saved' ? currentPage : 1, page_size: activeTab === 'saved' ? 10 : 100 }),
         opportunityService.getMyApplications({ page: activeTab === 'applications' ? currentPage : 1 })
       ]);
 
@@ -149,21 +149,34 @@ export default function UserDashboard() {
     return new Set(applications.map(app => app.opportunity?.id || app.opportunity_id || app.id));
   }, [applications]);
 
-  // Save / Bookmark handler
+  // Save / Bookmark handler with optimistic update and rollback
   const handleSaveToggle = async (oppId) => {
     const isCurrentlySaved = savedIdsSet.has(oppId);
+
+    // Find the opportunity object across opportunities, applications, or savedItems
+    const foundInOpps = opportunities.find(o => o.id === oppId);
+    const foundInApps = applications.find(a => (a.opportunity?.id || a.id) === oppId);
+    const foundInSaved = savedItems.find(s => (s.opportunity?.id || s.id) === oppId);
+    const oppObj = foundInOpps || foundInApps?.opportunity || (foundInApps?.title ? foundInApps : null) || foundInSaved?.opportunity || (foundInSaved?.title ? foundInSaved : null);
+
+    // Save previous state for rollback
+    const prevSavedItems = savedItems;
+
+    // Optimistic update
+    if (isCurrentlySaved) {
+      setSavedItems(prev => prev.filter(item => (item.opportunity?.id || item.id) !== oppId));
+    } else {
+      setSavedItems(prev => [...prev, { id: oppId, opportunity: oppObj || { id: oppId } }]);
+    }
+
     try {
       await opportunityService.toggleSaveOpportunity(oppId, isCurrentlySaved);
-      if (isCurrentlySaved) {
-        setSavedItems(prev => prev.filter(item => (item.opportunity?.id || item.id) !== oppId));
-      } else {
-        const foundOpp = opportunities.find(o => o.id === oppId);
-        if (foundOpp) {
-          setSavedItems(prev => [...prev, { id: oppId, opportunity: foundOpp }]);
-        }
-      }
+      toast.success(isCurrentlySaved ? "Removed from saved items" : "Saved to your list");
     } catch (err) {
       console.error('Error toggling save status:', err);
+      // Rollback on failure
+      setSavedItems(prevSavedItems);
+      toast.error('Failed to update bookmark. Please try again.');
     }
   };
 
@@ -408,36 +421,16 @@ export default function UserDashboard() {
                 {applications.map(app => {
                   const opp = app.opportunity || app;
                   return (
-                    <div key={app.id} className="application-card-wrapper">
-                      <div className="app-status-bar flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`status-pill status-${app.status || 'applied'}`}>
-                            Status: {(app.status || 'Applied').replace('_', ' ').toUpperCase()}
-                          </span>
-                          <span className="app-date">
-                            Applied {app.applied_at ? new Date(app.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recently'}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={chatLoadingId === app.id}
-                          onClick={() => handleStartChat(app.id)}
-                          className="btn-chat-message text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5 ml-auto cursor-pointer"
-                          title="Message poster"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                          </svg>
-                          {chatLoadingId === app.id ? 'Opening...' : 'Message'}
-                        </button>
-                      </div>
-                      <OpportunityCard
-                        opportunity={opp}
-                        isSaved={savedIdsSet.has(opp.id)}
-                        onSaveToggle={handleSaveToggle}
-                        onSelect={(selected) => setSelectedOpportunity(selected)}
-                      />
-                    </div>
+                    <OpportunityCard
+                      key={app.id}
+                      opportunity={opp}
+                      isSaved={savedIdsSet.has(opp.id)}
+                      onSaveToggle={handleSaveToggle}
+                      onSelect={(selected) => setSelectedOpportunity(selected)}
+                      application={app}
+                      onMessage={() => handleStartChat(app.id)}
+                      chatLoading={chatLoadingId === app.id}
+                    />
                   );
                 })}
               </div>
