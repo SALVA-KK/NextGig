@@ -11,9 +11,11 @@ import { useEffect, useRef } from 'react';
  * - Clean teardown on unmount to prevent React StrictMode duplicate connections.
  * 
  * @param {Function} onNotification - Callback invoked when a new notification is pushed.
+ * @param {Function} [onChatMessage] - Optional callback invoked when a real-time chat message is pushed.
  */
-export function useNotificationSocket(onNotification) {
+export function useNotificationSocket(onNotification, onChatMessage) {
   const onNotificationRef = useRef(onNotification);
+  const onChatMessageRef = useRef(onChatMessage);
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const retryCountRef = useRef(0);
@@ -24,6 +26,10 @@ export function useNotificationSocket(onNotification) {
   useEffect(() => {
     onNotificationRef.current = onNotification;
   }, [onNotification]);
+
+  useEffect(() => {
+    onChatMessageRef.current = onChatMessage;
+  }, [onChatMessage]);
 
   useEffect(() => {
     let isUnmounted = false;
@@ -84,6 +90,8 @@ export function useNotificationSocket(onNotification) {
             const data = JSON.parse(event.data);
             if (data.type === 'notification' && data.notification && onNotificationRef.current) {
               onNotificationRef.current(data.notification);
+            } else if (data.type === 'chat_message' && data.message && onChatMessageRef.current) {
+              onChatMessageRef.current(data.message);
             }
           } catch (err) {
             console.error('[NotificationWS] Failed to parse message JSON:', err);

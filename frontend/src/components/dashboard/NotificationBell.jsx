@@ -30,7 +30,11 @@ export default function NotificationBell() {
     }
   }, []);
 
-  useNotificationSocket(handleIncomingNotification);
+  const handleIncomingChatMessage = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('chat:unread-updated'));
+  }, []);
+
+  useNotificationSocket(handleIncomingNotification, handleIncomingChatMessage);
 
   // Fetch unread count
   const fetchUnreadCount = async () => {

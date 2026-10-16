@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "apps.opportunities",
     "apps.notifications",
     "apps.assistant",
+    "apps.chat",
     "django_celery_beat",
 ]
 
@@ -203,6 +204,8 @@ REST_FRAMEWORK = {
         "people_search_sustained": "300/hour",
         "people_detail": "60/minute",
         "device_tokens": "30/minute",
+        "chat_message_send": "30/minute",
+        "chat_general": "120/minute",
     },
 }
 

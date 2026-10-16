@@ -17,6 +17,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminMFAChallenge from './pages/auth/AdminMFAChallenge';
 import AdminMFASetup from './pages/admin/AdminMFASetup';
 import OpportunityDetail from './pages/opportunities/OpportunityDetail';
+import ChatPage from './pages/chat/ChatPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function App() {
@@ -60,6 +61,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['student', 'provider']}>
               <People />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <ProtectedRoute allowedRoles={['student', 'provider']}>
+              <ChatPage />
             </ProtectedRoute>
           }
         />

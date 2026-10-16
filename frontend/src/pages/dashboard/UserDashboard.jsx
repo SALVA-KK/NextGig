@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { Bookmark, FileText } from 'lucide-react';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
@@ -9,6 +9,7 @@ import StudentCollabCard from '../../components/opportunities/StudentCollabCard'
 import PaginationControl from '../../components/common/PaginationControl';
 import EmptyState from '../../components/common/EmptyState';
 import { opportunityService } from '../../services/opportunityService';
+import { chatService } from '../../services/chatService';
 
 export default function UserDashboard() {
   const location = useLocation();
@@ -24,6 +25,22 @@ export default function UserDashboard() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [chatLoadingId, setChatLoadingId] = useState(null);
+  const navigate = useNavigate();
+
+  const handleStartChat = async (applicationId) => {
+    try {
+      setChatLoadingId(applicationId);
+      const conv = await chatService.getOrCreateConversation(applicationId);
+      navigate(`/chat?conversationId=${conv.id}`);
+    } catch (err) {
+      console.error('Failed to open chat:', err);
+      const detail = err.response?.data?.detail || 'Failed to start conversation.';
+      toast.error(detail);
+    } finally {
+      setChatLoadingId(null);
+    }
+  };
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -392,13 +409,27 @@ export default function UserDashboard() {
                   const opp = app.opportunity || app;
                   return (
                     <div key={app.id} className="application-card-wrapper">
-                      <div className="app-status-bar">
-                        <span className={`status-pill status-${app.status || 'applied'}`}>
-                          Status: {(app.status || 'Applied').replace('_', ' ').toUpperCase()}
-                        </span>
-                        <span className="app-date">
-                          Applied {app.applied_at ? new Date(app.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recently'}
-                        </span>
+                      <div className="app-status-bar flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`status-pill status-${app.status || 'applied'}`}>
+                            Status: {(app.status || 'Applied').replace('_', ' ').toUpperCase()}
+                          </span>
+                          <span className="app-date">
+                            Applied {app.applied_at ? new Date(app.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recently'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={chatLoadingId === app.id}
+                          onClick={() => handleStartChat(app.id)}
+                          className="btn-chat-message text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5 ml-auto cursor-pointer"
+                          title="Message poster"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                          </svg>
+                          {chatLoadingId === app.id ? 'Opening...' : 'Message'}
+                        </button>
                       </div>
                       <OpportunityCard
                         opportunity={opp}

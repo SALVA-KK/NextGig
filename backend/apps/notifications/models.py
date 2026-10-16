@@ -19,6 +19,7 @@ class Notification(models.Model):
         PROVIDER_VERIFIED = "provider_verified", _("Provider Verified")
         PROVIDER_UNVERIFIED = "provider_unverified", _("Provider Unverified")
         RECOMMENDATIONS_DIGEST = "recommendations_digest", _("Daily Recommendations Digest")
+        NEW_CHAT_MESSAGE = "new_chat_message", _("New Chat Message")
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,

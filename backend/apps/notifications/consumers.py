@@ -86,3 +86,16 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
                 "type": "notification",
                 "notification": notification_data,
             })
+
+    async def chat_message(self, event):
+        """
+        Handler invoked when a chat message event is sent to the user's notification group.
+        Sends a JSON event with shape: {"type": "chat_message", "message": <data>}
+        """
+        message_data = event.get("message")
+        if message_data is not None:
+            await self.send_json({
+                "type": "chat_message",
+                "message": message_data,
+            })
+

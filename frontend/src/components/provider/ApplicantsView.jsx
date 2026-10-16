@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { opportunityService } from '../../services/opportunityService';
+import { chatService } from '../../services/chatService';
 import { api, authService } from '../../services/authService';
 import PaginationControl from '../common/PaginationControl';
 import SocialLinksDisplay from '../common/SocialLinksDisplay';
@@ -47,9 +49,25 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [updatingId, setUpdatingId] = useState(null);
+  const [chatLoadingId, setChatLoadingId] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [downloadError, setDownloadError] = useState({});
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
+
+  const handleStartChat = async (applicationId) => {
+    try {
+      setChatLoadingId(applicationId);
+      const conv = await chatService.getOrCreateConversation(applicationId);
+      navigate(`/chat?conversationId=${conv.id}`);
+    } catch (err) {
+      console.error('Failed to open chat:', err);
+      const detail = err.response?.data?.detail || 'Failed to start conversation.';
+      alert(detail);
+    } finally {
+      setChatLoadingId(null);
+    }
+  };
 
   // Sync selectedOpportunity prop when changed by parent
   useEffect(() => {
@@ -391,6 +409,19 @@ export default function ApplicantsView({ selectedOpportunity = null, onSelectOpp
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      disabled={chatLoadingId === app.id}
+                      onClick={() => handleStartChat(app.id)}
+                      className="btn-secondary-link"
+                      style={{ border: '1px solid var(--border-color)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      title="Message applicant"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                      </svg>
+                      {chatLoadingId === app.id ? 'Opening...' : 'Message'}
+                    </button>
                     <button
                       disabled={updatingId === app.id || app.status === 'under_review'}
                       onClick={() => handleStatusUpdate(app.id, 'under_review')}

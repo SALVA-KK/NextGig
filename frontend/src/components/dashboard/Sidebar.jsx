@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { authService } from '../../services/authService';
 import { getNavPermissions } from '../../utils/navigationConfig';
+import { useChatUnreadCount } from '../../hooks/useChatUnreadCount';
 
 export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
   const navigate = useNavigate();
@@ -10,6 +11,7 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
   const userRole = authService.getUserRole();
   const { isStudent, isProvider, isAdmin, canViewApplications, canViewSavedItems, profileLabel } =
     getNavPermissions(userRole, rawAdmin);
+  const { unreadCount: chatUnreadCount } = useChatUnreadCount();
 
   const [studentOppOpen, setStudentOppOpen] = useState(() => location.pathname !== '/people');
   const [providerOppOpen, setProviderOppOpen] = useState(() => location.pathname !== '/people');
@@ -173,6 +175,22 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
                     <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                   </svg>
                   Find People
+                </Link>
+
+                <Link
+                  to="/chat"
+                  onClick={onClose}
+                  className={`sidebar-nav-btn ${location.pathname === '/chat' ? 'active' : ''}`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  <span>Chat</span>
+                  {chatUnreadCount > 0 && (
+                    <span className="ml-auto inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-indigo-600 rounded-full">
+                      {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                    </span>
+                  )}
                 </Link>
 
                 <div className="nav-dropdown-group">
@@ -390,6 +408,22 @@ export default function Sidebar({ isOpen, onClose, activeTab, setActiveTab }) {
                     My Applications
                   </button>
                 )}
+
+                <Link
+                  to="/chat"
+                  onClick={onClose}
+                  className={`sidebar-nav-btn ${location.pathname === '/chat' ? 'active' : ''}`}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  <span>Chat</span>
+                  {chatUnreadCount > 0 && (
+                    <span className="ml-auto inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-indigo-600 rounded-full">
+                      {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                    </span>
+                  )}
+                </Link>
 
                 <Link
                   to="/profile"
