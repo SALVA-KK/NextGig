@@ -5,8 +5,8 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, transaction
-from django.db.models import Count, OuterRef, Q, Subquery
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -44,6 +44,85 @@ class ChatMessagePagination(PageNumberPagination):
     max_page_size = 100
 
 
+def is_pair_messaging_blocked(user_a, user_b, conversation=None):
+    """
+    Pair-level withdrawn rule:
+    Messaging is blocked ONLY if:
+    1. The conversation is not direct, AND
+    2. The pair has at least one application between them (either direction, through opportunity poster), AND
+    3. Every one of those applications is withdrawn.
+    Direct conversations and pairs with no applications are never blocked.
+    """
+    if conversation and conversation.is_direct:
+        return False
+
+    u1_id = min(user_a.id, user_b.id)
+    u2_id = max(user_a.id, user_b.id)
+
+    pair_apps = Application.objects.filter(
+        Q(applicant_id=u1_id, opportunity__poster_id=u2_id)
+        | Q(applicant_id=u2_id, opportunity__poster_id=u1_id)
+    )
+
+    if not pair_apps.exists():
+        return False
+
+    return not pair_apps.exclude(status="withdrawn").exists()
+
+
+def get_or_create_pair_conversation(user_a, user_b, application=None, set_direct=False):
+    """
+    Finds or creates the single canonical conversation for a pair of users.
+    Uses transaction-level Postgres advisory lock (pg_advisory_xact_lock) on the ordered pair (u1, u2)
+    to guarantee race-safety without creating duplicate conversations.
+    """
+    u1 = min(user_a, user_b, key=lambda u: u.id)
+    u2 = max(user_a, user_b, key=lambda u: u.id)
+
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s);", [u1.id, u2.id])
+
+    # 1. If an application is given, check if a conversation is already attached to this exact application
+    if application:
+        conv = Conversation.objects.filter(application=application).first()
+        if conv:
+            if set_direct and not conv.is_direct:
+                conv.is_direct = True
+                conv.save(update_fields=["is_direct"])
+            return conv, False
+
+    # 2. Check if ANY conversation already exists for the pair (lowest id)
+    conv = Conversation.objects.filter(user_one=u1, user_two=u2).order_by("id").first()
+    if conv:
+        if set_direct and not conv.is_direct:
+            conv.is_direct = True
+            conv.save(update_fields=["is_direct"])
+        return conv, False
+
+    # 3. None exists, create a new conversation
+    opp = application.opportunity if application else None
+    try:
+        conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            application=application,
+            opportunity=opp,
+            is_direct=set_direct,
+            last_message_at=timezone.now(),
+        )
+        return conv, True
+    except IntegrityError:
+        # Fallback if another concurrent process committed just ahead
+        conv = Conversation.objects.filter(user_one=u1, user_two=u2).order_by("id").first()
+        if conv:
+            if set_direct and not conv.is_direct:
+                conv.is_direct = True
+                conv.save(update_fields=["is_direct"])
+            return conv, False
+        raise
+
+
 class ConversationListCreateView(APIView):
     """
     GET: List my conversations, newest activity first.
@@ -58,10 +137,13 @@ class ConversationListCreateView(APIView):
             conversation=OuterRef("pk")
         ).order_by("-created_at", "-id").values("body")[:1]
 
+        has_messages = Exists(Message.objects.filter(conversation=OuterRef("pk")))
+
         queryset = (
             Conversation.objects.filter(
                 Q(user_one=request.user) | Q(user_two=request.user)
             )
+            .filter(Q(is_direct=True) | has_messages)
             .select_related("user_one", "user_two", "opportunity")
             .annotate(
                 unread_count=Count(
@@ -113,39 +195,68 @@ class ConversationListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Return existing conversation if present
-        existing = Conversation.objects.filter(application=application).first()
-        if existing:
-            serializer = ConversationListSerializer(existing, context={"request": request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
+        other_user = poster if request.user == applicant else applicant
 
-        # Cannot create a conversation for a withdrawn application
-        if application.status == "withdrawn":
-            return Response(
-                {"detail": "Cannot start a conversation for a withdrawn application."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user_one = min(applicant, poster, key=lambda u: u.id)
-        user_two = max(applicant, poster, key=lambda u: u.id)
-
-        try:
-            conversation = Conversation.objects.create(
-                user_one=user_one,
-                user_two=user_two,
-                application=application,
-                opportunity=application.opportunity,
-                last_message_at=timezone.now(),
-            )
-        except IntegrityError:
-            existing = Conversation.objects.filter(application=application).first()
-            if existing:
-                serializer = ConversationListSerializer(existing, context={"request": request})
+        with transaction.atomic():
+            # If a legacy conversation is already attached to this exact application, return that one
+            exact_app_conv = Conversation.objects.filter(application=application).first()
+            if exact_app_conv:
+                serializer = ConversationListSerializer(exact_app_conv, context={"request": request})
                 return Response(serializer.data, status=status.HTTP_200_OK)
-            raise
+
+            # Check pair withdrawn rule:
+            # withdrawn application returns 400 only when the application given is withdrawn and no other pair application is active
+            if application.status == "withdrawn" and is_pair_messaging_blocked(request.user, other_user):
+                return Response(
+                    {"detail": "Cannot start a conversation for a withdrawn application."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            conv, created = get_or_create_pair_conversation(
+                request.user, other_user, application=application, set_direct=False
+            )
+
+        serializer = ConversationListSerializer(conv, context={"request": request})
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class ConversationDetailView(APIView):
+    """
+    GET: Retrieve details of a single conversation for its participants.
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "chat_general"
+
+    def get(self, request, conversation_id, *args, **kwargs):
+        last_msg_subquery = Message.objects.filter(
+            conversation=OuterRef("pk")
+        ).order_by("-created_at", "-id").values("body")[:1]
+
+        conversation = (
+            Conversation.objects.filter(
+                id=conversation_id,
+            )
+            .filter(Q(user_one=request.user) | Q(user_two=request.user))
+            .select_related("user_one", "user_two", "opportunity")
+            .annotate(
+                unread_count=Count(
+                    "messages",
+                    filter=Q(messages__read_at__isnull=True) & ~Q(messages__sender=request.user),
+                    distinct=True,
+                ),
+                last_message_body=Subquery(last_msg_subquery),
+            )
+            .first()
+        )
+        if not conversation:
+            raise Http404("Conversation not found.")
 
         serializer = ConversationListSerializer(conversation, context={"request": request})
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class MessageListCreateView(APIView):
@@ -196,9 +307,10 @@ class MessageListCreateView(APIView):
 
     def post(self, request, conversation_id, *args, **kwargs):
         conversation = self._get_conversation(conversation_id, request.user)
+        recipient = conversation.get_other_participant(request.user)
 
-        # Block sending if application is withdrawn
-        if conversation.application and conversation.application.status == "withdrawn":
+        # Block sending if pair messaging is blocked (pair-level withdrawn rule)
+        if is_pair_messaging_blocked(request.user, recipient, conversation=conversation):
             return Response(
                 {"detail": "Cannot send messages because this application has been withdrawn."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -416,19 +528,14 @@ class ChatRequestCreateView(APIView):
             )
 
         with transaction.atomic():
-            # Active conversation check: any conversation for pair EXCEPT withdrawn applications
+            # Active conversation check: conversation is active unless blocked by pair-level withdrawn rule
             u1, u2 = (request.user, receiver) if request.user.id < receiver.id else (receiver, request.user)
-            active_conv = (
-                Conversation.objects.filter(user_one=u1, user_two=u2)
-                .filter(Q(application__isnull=True) | ~Q(application__status="withdrawn"))
-                .order_by("-last_message_at")
-                .first()
-            )
-            if active_conv:
+            pair_conv = Conversation.objects.filter(user_one=u1, user_two=u2).order_by("id").first()
+            if pair_conv and not is_pair_messaging_blocked(request.user, receiver, conversation=pair_conv):
                 return Response(
                     {
                         "detail": "You already have an active conversation with this user.",
-                        "conversation_id": active_conv.id,
+                        "conversation_id": pair_conv.id,
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -649,14 +756,9 @@ class ChatRequestAcceptView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            u1, u2 = (sender, request.user) if sender.id < request.user.id else (request.user, sender)
-            conv = Conversation.objects.filter(user_one=u1, user_two=u2, is_direct=True).first()
-            if not conv:
-                try:
-                    with transaction.atomic():
-                        conv = Conversation.objects.create(user_one=u1, user_two=u2, is_direct=True)
-                except IntegrityError:
-                    conv = Conversation.objects.filter(user_one=u1, user_two=u2, is_direct=True).first()
+            conv, _ = get_or_create_pair_conversation(
+                request.user, sender, application=None, set_direct=True
+            )
 
             # Mark opposite pending request accepted if one exists
             reverse_req = (

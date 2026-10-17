@@ -11,6 +11,15 @@ export const chatService = {
   },
 
   /**
+   * Fetch single conversation details.
+   * @param {number} conversationId
+   */
+  async getConversation(conversationId) {
+    const response = await api.get(`/chat/conversations/${conversationId}/`);
+    return response.data;
+  },
+
+  /**
    * Create or fetch an existing conversation tied to an application.
    * @param {number} applicationId
    */

@@ -38,6 +38,8 @@ export default function ChatPage() {
   const [activeConversationId, setActiveConversationId] = useState(
     requestedConvId ? parseInt(requestedConvId, 10) : null
   );
+  const [standaloneConv, setStandaloneConv] = useState(null);
+  const [conversationError, setConversationError] = useState(null);
 
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -53,6 +55,8 @@ export default function ChatPage() {
   const scrollOffsetRef = useRef(null);
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
 
   const scrollToBottom = (smooth = true) => {
     if (messagesEndRef.current) {
@@ -75,17 +79,42 @@ export default function ChatPage() {
       const list = data.results || (Array.isArray(data) ? data : []);
       setConversations(list);
 
-      // Auto-select conversation
-      if (list.length > 0) {
-        if (requestedConvId) {
-          const matchId = parseInt(requestedConvId, 10);
-          if (list.some((c) => c.id === matchId)) {
+      if (requestedConvId) {
+        const matchId = parseInt(requestedConvId, 10);
+        const inList = list.find((c) => c.id === matchId);
+        if (inList) {
+          setActiveConversationId(matchId);
+          setStandaloneConv(null);
+          setConversationError(null);
+        } else {
+          // Requested id is not in loaded list: fetch via detail endpoint
+          try {
+            const detail = await chatService.getConversation(matchId);
             setActiveConversationId(matchId);
-          } else {
-            setActiveConversationId(list[0].id);
+            setStandaloneConv(detail);
+            setConversationError(null);
+          } catch (err) {
+            console.error('Failed to load requested conversation:', err);
+            setActiveConversationId(null);
+            setStandaloneConv(null);
+            if (err.response?.status === 404) {
+              setConversationError('Conversation not found or you do not have permission to view it.');
+            } else {
+              setConversationError('Failed to load conversation.');
+            }
           }
-        } else if (!activeConversationIdRef.current) {
+        }
+      } else {
+        // No conversationId in URL: keep active if still in list, else fallback to list[0] or null
+        setStandaloneConv(null);
+        setConversationError(null);
+        const currentActiveId = activeConversationIdRef.current;
+        if (currentActiveId && list.some((c) => c.id === currentActiveId)) {
+          // Keep current active conversation
+        } else if (list.length > 0) {
           setActiveConversationId(list[0].id);
+        } else {
+          setActiveConversationId(null);
         }
       }
     } catch (err) {
@@ -212,8 +241,6 @@ export default function ChatPage() {
       setConversations((prev) => {
         const exists = prev.some((c) => c.id === newMsg.conversation_id);
         if (!exists) {
-          // If a new conversation was created elsewhere, reload list
-          loadConversations();
           return prev;
         }
 
@@ -231,6 +258,11 @@ export default function ChatPage() {
           })
           .sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
       });
+
+      // If a new conversation was created or not currently in list, reload once
+      if (!conversationsRef.current.some((c) => c.id === newMsg.conversation_id)) {
+        loadConversations();
+      }
     },
     [loadConversations]
   );
@@ -263,20 +295,25 @@ export default function ChatPage() {
         return [...prev, createdMessage];
       });
 
-      // Update preview in list
-      setConversations((prev) =>
-        prev
-          .map((c) =>
-            c.id === activeConversationId
-              ? {
-                  ...c,
-                  last_message_preview: createdMessage.body,
-                  last_message_at: createdMessage.created_at,
-                }
-              : c
-          )
-          .sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at))
-      );
+      // If this conversation is not yet in the sidebar list (e.g. was empty/standalone), reload list
+      if (!conversationsRef.current.some((c) => c.id === activeConversationId)) {
+        loadConversations();
+      } else {
+        // Update preview in list
+        setConversations((prev) =>
+          prev
+            .map((c) =>
+              c.id === activeConversationId
+                ? {
+                    ...c,
+                    last_message_preview: createdMessage.body,
+                    last_message_at: createdMessage.created_at,
+                  }
+                : c
+            )
+            .sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at))
+        );
+      }
 
       setInputBody('');
       setTimeout(() => scrollToBottom(true), 50);
@@ -296,7 +333,9 @@ export default function ChatPage() {
     }
   };
 
-  const activeConv = conversations.find((c) => c.id === activeConversationId);
+  const activeConv =
+    conversations.find((c) => c.id === activeConversationId) ||
+    (standaloneConv && standaloneConv.id === activeConversationId ? standaloneConv : null);
 
   return (
     <DashboardLayout activeTab="chat">
@@ -339,6 +378,8 @@ export default function ChatPage() {
                       type="button"
                       onClick={() => {
                         setActiveConversationId(conv.id);
+                        setStandaloneConv(null);
+                        setConversationError(null);
                         setSearchParams({ conversationId: conv.id });
                       }}
                       className={`w-full text-left p-4 transition-colors flex items-start gap-3 hover:bg-slate-100/70 ${
@@ -498,9 +539,12 @@ export default function ChatPage() {
             ) : (
               <div className="flex-1 flex items-center justify-center p-6">
                 <EmptyState
-                  icon={MessageSquare}
-                  title="No conversation selected"
-                  subtitle="Select a conversation from the list to view and send messages."
+                  icon={conversationError ? AlertCircle : MessageSquare}
+                  title={conversationError ? "Conversation not found" : "No conversation selected"}
+                  subtitle={
+                    conversationError ||
+                    "Select a conversation from the list to view and send messages."
+                  }
                   className="py-12 bg-transparent border-0 shadow-none"
                 />
               </div>

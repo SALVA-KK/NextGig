@@ -1446,3 +1446,380 @@ class ChatMessageRequestAPITests(APITestCase):
         self.assertEqual(settings.CHAT_REQUEST_DECLINE_COOLDOWN_DAYS, 7)
 
 
+import io
+from django.core.management import call_command
+
+
+class ChatOneConversationPerPairTests(APITestCase):
+    """
+    Tests for the one-conversation-per-pair cleanup round:
+    - Single conversation per pair across multiple applications
+    - Pair-level withdrawn messaging rule
+    - Empty non-direct conversation hiding in list and detail view
+    - Empty direct conversation listing
+    - Request accept reuses existing conversation and sets is_direct
+    - merge_duplicate_conversations management command
+    - Concurrency / race handling
+    """
+
+    def setUp(self):
+        cache.clear()
+
+        self.student_a = User.objects.create_user(
+            email="clean_student_a@example.com",
+            password="Password123!",
+            full_name="Student Alpha",
+            role="student",
+            is_verified=True,
+        )
+        StudentProfile.objects.create(user=self.student_a, is_discoverable=True)
+
+        self.student_b = User.objects.create_user(
+            email="clean_student_b@example.com",
+            password="Password123!",
+            full_name="Student Beta",
+            role="student",
+            is_verified=True,
+        )
+        StudentProfile.objects.create(user=self.student_b, is_discoverable=True)
+
+        self.provider = User.objects.create_user(
+            email="clean_provider@example.com",
+            password="Password123!",
+            full_name="Provider Gamma",
+            role="provider",
+            is_verified=True,
+        )
+
+        self.third_party = User.objects.create_user(
+            email="clean_third_party@example.com",
+            password="Password123!",
+            full_name="Third Party",
+            role="student",
+            is_verified=True,
+        )
+
+        self.opp1 = Opportunity.objects.create(
+            poster=self.provider,
+            title="Clean Opp 1",
+            description="Opportunity 1",
+            category=Opportunity.Category.INTERNSHIP,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.STIPEND,
+            status=Opportunity.Status.OPEN,
+            deadline=timezone.now().date() + timedelta(days=30),
+        )
+
+        self.opp2 = Opportunity.objects.create(
+            poster=self.provider,
+            title="Clean Opp 2",
+            description="Opportunity 2",
+            category=Opportunity.Category.INTERNSHIP,
+            work_mode=Opportunity.WorkMode.REMOTE,
+            pay_type=Opportunity.PayType.STIPEND,
+            status=Opportunity.Status.OPEN,
+            deadline=timezone.now().date() + timedelta(days=30),
+        )
+
+        self.app1 = Application.objects.create(
+            applicant=self.student_a,
+            opportunity=self.opp1,
+            status=Application.Status.APPLIED,
+        )
+
+        self.app2 = Application.objects.create(
+            applicant=self.student_a,
+            opportunity=self.opp2,
+            status=Application.Status.APPLIED,
+        )
+
+    def test_second_application_same_pair_returns_same_conversation(self):
+        # 1. Student A starts conversation via application 1
+        self.client.force_authenticate(user=self.student_a)
+        res1 = self.client.post("/api/chat/conversations/", {"application_id": self.app1.id})
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        conv1_id = res1.data["id"]
+
+        # 2. Student A calls POST with application 2 -> returns the same conversation (200 OK)
+        res2 = self.client.post("/api/chat/conversations/", {"application_id": self.app2.id})
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.data["id"], conv1_id)
+
+        # 3. Provider calls POST with application 2 -> returns the same conversation (200 OK)
+        self.client.force_authenticate(user=self.provider)
+        res3 = self.client.post("/api/chat/conversations/", {"application_id": self.app2.id})
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
+        self.assertEqual(res3.data["id"], conv1_id)
+
+        # Provider calls POST with application 1 -> returns the same conversation (200 OK)
+        res4 = self.client.post("/api/chat/conversations/", {"application_id": self.app1.id})
+        self.assertEqual(res4.status_code, status.HTTP_200_OK)
+        self.assertEqual(res4.data["id"], conv1_id)
+
+        # Total conversations between this pair is strictly 1
+        u1, u2 = (self.student_a, self.provider) if self.student_a.id < self.provider.id else (self.provider, self.student_a)
+        self.assertEqual(Conversation.objects.filter(user_one=u1, user_two=u2).count(), 1)
+
+    def test_withdrawn_first_application_with_active_second_allows_messaging(self):
+        # Create conversation tied to app1
+        u1, u2 = (self.student_a, self.provider) if self.student_a.id < self.provider.id else (self.provider, self.student_a)
+        conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            application=self.app1,
+            opportunity=self.opp1,
+            is_direct=False,
+        )
+
+        # Mark app1 as withdrawn, but app2 remains active ('applied')
+        self.app1.status = Application.Status.WITHDRAWN
+        self.app1.save(update_fields=["status"])
+
+        self.client.force_authenticate(user=self.student_a)
+        res = self.client.post(
+            f"/api/chat/conversations/{conv.id}/messages/",
+            {"body": "Active message because second app exists"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_all_applications_withdrawn_blocks_sending(self):
+        u1, u2 = (self.student_a, self.provider) if self.student_a.id < self.provider.id else (self.provider, self.student_a)
+        conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            application=self.app1,
+            opportunity=self.opp1,
+            is_direct=False,
+        )
+        Message.objects.create(conversation=conv, sender=self.student_a, body="Initial message")
+
+        # Withdraw all applications between the pair
+        self.app1.status = Application.Status.WITHDRAWN
+        self.app1.save(update_fields=["status"])
+        self.app2.status = Application.Status.WITHDRAWN
+        self.app2.save(update_fields=["status"])
+
+        self.client.force_authenticate(user=self.student_a)
+
+        # Sending is blocked
+        res_send = self.client.post(
+            f"/api/chat/conversations/{conv.id}/messages/",
+            {"body": "Blocked message"},
+        )
+        self.assertEqual(res_send.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("withdrawn", res_send.data["detail"].lower())
+
+        # History is still readable
+        res_read = self.client.get(f"/api/chat/conversations/{conv.id}/messages/")
+        self.assertEqual(res_read.status_code, status.HTTP_200_OK)
+
+    def test_direct_and_orphaned_conversations_never_blocked(self):
+        # 1. Direct conversation: all applications between pair withdrawn, sending still allowed
+        u1, u2 = (self.student_a, self.student_b) if self.student_a.id < self.student_b.id else (self.student_b, self.student_a)
+        direct_conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            is_direct=True,
+        )
+        student_opp = Opportunity.objects.create(poster=self.student_b, title="Student Opp", description="Desc")
+        student_app = Application.objects.create(
+            applicant=self.student_a,
+            opportunity=student_opp,
+            status=Application.Status.WITHDRAWN,
+        )
+
+        self.client.force_authenticate(user=self.student_a)
+        res_direct = self.client.post(
+            f"/api/chat/conversations/{direct_conv.id}/messages/",
+            {"body": "Direct message allowed"},
+        )
+        self.assertEqual(res_direct.status_code, status.HTTP_201_CREATED)
+
+        # 2. Orphaned conversation: 0 applications between pair, sending allowed
+        student_app.delete()
+        student_opp.delete()
+        res_orphaned = self.client.post(
+            f"/api/chat/conversations/{direct_conv.id}/messages/",
+            {"body": "Orphaned message allowed"},
+        )
+        self.assertEqual(res_orphaned.status_code, status.HTTP_201_CREATED)
+
+    def test_empty_non_direct_conversations_hidden_from_list_but_open_by_id(self):
+        u1, u2 = (self.student_a, self.provider) if self.student_a.id < self.provider.id else (self.provider, self.student_a)
+        empty_conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            application=self.app1,
+            opportunity=self.opp1,
+            is_direct=False,
+        )
+
+        self.client.force_authenticate(user=self.student_a)
+
+        # GET /api/chat/conversations/ list does NOT include empty non-direct conversation
+        res_list = self.client.get("/api/chat/conversations/")
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        results = res_list.data.get("results", res_list.data)
+        self.assertEqual(len(results), 0)
+
+        # GET /api/chat/conversations/<id>/ returns 200 with matching serializer fields
+        res_detail = self.client.get(f"/api/chat/conversations/{empty_conv.id}/")
+        self.assertEqual(res_detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_detail.data["id"], empty_conv.id)
+        self.assertEqual(res_detail.data["opportunity"]["id"], self.opp1.id)
+        self.assertEqual(res_detail.data["unread_count"], 0)
+        self.assertEqual(res_detail.data["last_message_preview"], "")
+
+        # Detail endpoint returns 404 for non-participants
+        self.client.force_authenticate(user=self.third_party)
+        res_third = self.client.get(f"/api/chat/conversations/{empty_conv.id}/")
+        self.assertEqual(res_third.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Detail endpoint returns 404 for non-existent conversation
+        self.client.force_authenticate(user=self.student_a)
+        res_nonexistent = self.client.get("/api/chat/conversations/999999/")
+        self.assertEqual(res_nonexistent.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_empty_direct_conversations_are_listed(self):
+        u1, u2 = (self.student_a, self.student_b) if self.student_a.id < self.student_b.id else (self.student_b, self.student_a)
+        direct_conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            is_direct=True,
+        )
+
+        self.client.force_authenticate(user=self.student_a)
+        res_list = self.client.get("/api/chat/conversations/")
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        results = res_list.data.get("results", res_list.data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], direct_conv.id)
+
+    def test_accept_request_reuses_existing_withdrawn_app_conv_and_sets_is_direct(self):
+        u1, u2 = (self.student_a, self.student_b) if self.student_a.id < self.student_b.id else (self.student_b, self.student_a)
+        student_opp = Opportunity.objects.create(poster=self.student_b, title="Student Opp", description="Desc")
+        student_app = Application.objects.create(
+            applicant=self.student_a,
+            opportunity=student_opp,
+            status=Application.Status.WITHDRAWN,
+        )
+        existing_conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            application=student_app,
+            opportunity=student_opp,
+            is_direct=False,
+        )
+
+        # Student A sends message request to Student B
+        self.client.force_authenticate(user=self.student_a)
+        res_req = self.client.post("/api/chat/requests/", {"receiver_id": self.student_b.id})
+        self.assertEqual(res_req.status_code, status.HTTP_201_CREATED)
+        req_id = res_req.data["id"]
+
+        # Student B accepts request
+        self.client.force_authenticate(user=self.student_b)
+        res_accept = self.client.post(f"/api/chat/requests/{req_id}/accept/")
+        self.assertEqual(res_accept.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_accept.data["conversation_id"], existing_conv.id)
+
+        # Conversation is reused and set to is_direct=True
+        existing_conv.refresh_from_db()
+        self.assertTrue(existing_conv.is_direct)
+        self.assertEqual(Conversation.objects.filter(user_one=u1, user_two=u2).count(), 1)
+
+    def test_request_creation_allowed_when_pair_messaging_blocked_and_blocked_when_active(self):
+        u1, u2 = (self.student_a, self.student_b) if self.student_a.id < self.student_b.id else (self.student_b, self.student_a)
+        student_opp = Opportunity.objects.create(poster=self.student_b, title="Student Opp", description="Desc")
+        student_app = Application.objects.create(
+            applicant=self.student_a,
+            opportunity=student_opp,
+            status=Application.Status.WITHDRAWN,
+        )
+        blocked_conv = Conversation.objects.create(
+            user_one=u1,
+            user_two=u2,
+            application=student_app,
+            opportunity=student_opp,
+            is_direct=False,
+        )
+
+        self.client.force_authenticate(user=self.student_a)
+
+        # When messaging is blocked by pair withdrawn rule, request creation is ALLOWED
+        res1 = self.client.post("/api/chat/requests/", {"receiver_id": self.student_b.id})
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        # Cancel request
+        self.client.post(f"/api/chat/requests/{res1.data['id']}/cancel/")
+
+        # Make conversation direct (active)
+        blocked_conv.is_direct = True
+        blocked_conv.save(update_fields=["is_direct"])
+
+        # When conversation is active (direct), request creation is BLOCKED
+        res2 = self.client.post("/api/chat/requests/", {"receiver_id": self.student_b.id})
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res2.data["conversation_id"], blocked_conv.id)
+
+    def test_merge_duplicate_conversations_command(self):
+        u1, u2 = (self.student_a, self.student_b) if self.student_a.id < self.student_b.id else (self.student_b, self.student_a)
+
+        # Create 3 duplicate conversations
+        conv1 = Conversation.objects.create(user_one=u1, user_two=u2, is_direct=False)
+        conv2 = Conversation.objects.create(user_one=u1, user_two=u2, is_direct=True)
+        conv3 = Conversation.objects.create(user_one=u1, user_two=u2, is_direct=False)
+
+        # Messages
+        t1 = timezone.now() - timedelta(minutes=10)
+        t2 = timezone.now() - timedelta(minutes=5)
+        m1 = Message.objects.create(conversation=conv1, sender=self.student_a, body="Msg on conv 1", created_at=t1)
+        m2 = Message.objects.create(conversation=conv2, sender=self.student_b, body="Msg on conv 2", created_at=t2)
+
+        # Request pointing to conv3
+        req = MessageRequest.objects.create(
+            sender=self.student_a,
+            receiver=self.student_b,
+            status=MessageRequest.Status.ACCEPTED,
+            conversation=conv3,
+        )
+
+        # 1. DRY-RUN test
+        out_dry = io.StringIO()
+        call_command("merge_duplicate_conversations", stdout=out_dry)
+        output_dry = out_dry.getvalue()
+        self.assertIn("DRY-RUN", output_dry)
+        self.assertIn(f"Pair ({u1.id}, {u2.id})", output_dry)
+        self.assertEqual(Conversation.objects.filter(user_one=u1, user_two=u2).count(), 3)
+
+        # 2. APPLY test
+        out_apply = io.StringIO()
+        call_command("merge_duplicate_conversations", apply=True, stdout=out_apply)
+        output_apply = out_apply.getvalue()
+        self.assertIn("Merge completed", output_apply)
+
+        # Verification
+        self.assertEqual(Conversation.objects.filter(user_one=u1, user_two=u2).count(), 1)
+        kept_conv = Conversation.objects.get(user_one=u1, user_two=u2)
+        self.assertEqual(kept_conv.id, conv1.id)
+        self.assertTrue(kept_conv.is_direct)  # direct flag preserved from conv2
+
+        # All messages moved to kept_conv
+        self.assertEqual(Message.objects.filter(conversation=kept_conv).count(), 2)
+        m1.refresh_from_db()
+        m2.refresh_from_db()
+        self.assertEqual(m1.conversation_id, kept_conv.id)
+        self.assertEqual(m2.conversation_id, kept_conv.id)
+
+        # Request repointed to kept_conv
+        req.refresh_from_db()
+        self.assertEqual(req.conversation_id, kept_conv.id)
+
+        # 3. IDEMPOTENT rerun test
+        out_rerun = io.StringIO()
+        call_command("merge_duplicate_conversations", apply=True, stdout=out_rerun)
+        self.assertIn("No duplicate conversations found.", out_rerun.getvalue())
+        self.assertEqual(Conversation.objects.filter(user_one=u1, user_two=u2).count(), 1)
+
+
+
