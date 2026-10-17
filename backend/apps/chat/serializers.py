@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Conversation, Message
+from .models import Conversation, Message, MessageRequest
 
 
 class ChatParticipantSerializer(serializers.Serializer):
@@ -91,3 +91,41 @@ class ConversationListSerializer(serializers.ModelSerializer):
         if not body:
             return ""
         return (body[:100] + "...") if len(body) > 100 else body
+
+
+class MessageRequestIncomingSerializer(serializers.ModelSerializer):
+    """
+    Serializer for incoming message requests received by the authenticated student.
+    Strictly excludes declined_at. Sender contains only id and full_name.
+    """
+    sender = ChatParticipantSerializer(read_only=True)
+
+    class Meta:
+        model = MessageRequest
+        fields = [
+            "id",
+            "sender",
+            "intro",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class MessageRequestOutgoingSerializer(serializers.ModelSerializer):
+    """
+    Serializer for outgoing message requests sent by the authenticated student.
+    Strictly excludes declined_at. Receiver contains only id and full_name.
+    """
+    receiver = ChatParticipantSerializer(read_only=True)
+
+    class Meta:
+        model = MessageRequest
+        fields = [
+            "id",
+            "receiver",
+            "intro",
+            "status",
+            "created_at",
+        ]
+        read_only_fields = fields
+

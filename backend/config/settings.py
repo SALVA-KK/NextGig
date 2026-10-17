@@ -206,8 +206,13 @@ REST_FRAMEWORK = {
         "device_tokens": "30/minute",
         "chat_message_send": "30/minute",
         "chat_general": "120/minute",
+        "chat_request_action": "30/hour",
     },
 }
+
+# Chat Phase 2 Settings
+CHAT_REQUEST_DAILY_LIMIT = 10
+CHAT_REQUEST_DECLINE_COOLDOWN_DAYS = 7
 
 
 

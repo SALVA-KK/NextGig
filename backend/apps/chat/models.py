@@ -35,6 +35,7 @@ class Conversation(models.Model):
         blank=True,
         related_name="conversations",
     )
+    is_direct = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_message_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -50,7 +51,12 @@ class Conversation(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(user_one=models.F("user_two")),
                 name="chat_conversation_different_users",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["user_one", "user_two"],
+                condition=models.Q(is_direct=True),
+                name="unique_direct_conversation_per_pair",
+            ),
         ]
 
     def save(self, *args, **kwargs):
@@ -115,3 +121,81 @@ class Message(models.Model):
 
     def __str__(self):
         return f"Message #{self.id} from {self.sender_id} in Conv #{self.conversation_id}"
+
+
+class MessageRequest(models.Model):
+    """
+    Model representing a student-to-student direct message request.
+    Receiver must accept before a direct conversation is created.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="sent_chat_requests",
+    )
+    receiver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="received_chat_requests",
+    )
+    intro = models.CharField(max_length=300, blank=True, default="")
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    declined_at = models.DateTimeField(null=True, blank=True)
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="message_requests",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "chat_message_requests"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["receiver", "status", "-created_at"], name="chat_req_rcvr_stat_idx"),
+            models.Index(fields=["sender", "-created_at"], name="chat_req_sndr_created_idx"),
+            models.Index(fields=["sender", "receiver", "-created_at"], name="chat_req_pair_created_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(sender=models.F("receiver")),
+                name="chat_request_different_users",
+            ),
+            models.UniqueConstraint(
+                fields=["sender", "receiver"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_request_per_sender_receiver",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.intro:
+            self.intro = self.intro.strip()
+            if len(self.intro) > 300:
+                from django.core.exceptions import ValidationError
+                raise ValidationError("Intro cannot exceed 300 characters.")
+
+    def save(self, *args, **kwargs):
+        if self.intro:
+            self.intro = self.intro.strip()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"MessageRequest #{self.id} from {self.sender_id} to {self.receiver_id} ({self.status})"
+

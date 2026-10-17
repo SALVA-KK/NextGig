@@ -8,17 +8,18 @@ from channels.routing import URLRouter
 from channels.testing import WebsocketCommunicator
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db import transaction
-from django.test import TransactionTestCase, override_settings
+from django.db import IntegrityError, transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.accounts.models import StudentProfile
 from apps.notifications.models import Notification
 from apps.notifications.routing import websocket_urlpatterns
 from apps.opportunities.models import Application, Opportunity
-from .models import Conversation, Message
+from .models import Conversation, Message, MessageRequest
 
 User = get_user_model()
 inner_application = URLRouter(websocket_urlpatterns)
@@ -776,4 +777,672 @@ class ChatWebSocketTests(TransactionTestCase):
         self.assertNotIn(self.applicant.email, ws_notif_json)
 
         await comm_applicant.disconnect()
+
+
+class ChatPhase2ModelTests(TestCase):
+    """
+    Model tests for Conversation.is_direct, partial constraints, and delete behaviors.
+    """
+
+    def setUp(self):
+        self.student_a = User.objects.create_user(
+            email="phase2_a@example.com",
+            password="Password123!",
+            full_name="Student A",
+            role="student",
+            is_verified=True,
+        )
+        self.student_b = User.objects.create_user(
+            email="phase2_b@example.com",
+            password="Password123!",
+            full_name="Student B",
+            role="student",
+            is_verified=True,
+        )
+
+    def test_is_direct_defaults_to_false(self):
+        conv = Conversation.objects.create(
+            user_one=self.student_a,
+            user_two=self.student_b,
+        )
+        self.assertFalse(conv.is_direct)
+
+    def test_unique_direct_conversation_per_pair_constraint(self):
+        conv1 = Conversation.objects.create(
+            user_one=self.student_a,
+            user_two=self.student_b,
+            is_direct=True,
+        )
+        self.assertTrue(conv1.is_direct)
+
+        with self.assertRaises(IntegrityError):
+            Conversation.objects.create(
+                user_one=self.student_a,
+                user_two=self.student_b,
+                is_direct=True,
+            )
+
+    def test_delete_application_or_opportunity_with_two_conversations_does_not_raise(self):
+        # Create 2 opportunities and 2 applications between student A and student B
+        opp1 = Opportunity.objects.create(
+            poster=self.student_a,
+            title="Opp 1",
+            description="Description 1",
+        )
+        app1 = Application.objects.create(
+            opportunity=opp1,
+            applicant=self.student_b,
+            status=Application.Status.APPLIED,
+        )
+        conv1 = Conversation.objects.create(
+            user_one=self.student_a,
+            user_two=self.student_b,
+            application=app1,
+            opportunity=opp1,
+            is_direct=False,
+        )
+
+        opp2 = Opportunity.objects.create(
+            poster=self.student_a,
+            title="Opp 2",
+            description="Description 2",
+        )
+        app2 = Application.objects.create(
+            opportunity=opp2,
+            applicant=self.student_b,
+            status=Application.Status.APPLIED,
+        )
+        conv2 = Conversation.objects.create(
+            user_one=self.student_a,
+            user_two=self.student_b,
+            application=app2,
+            opportunity=opp2,
+            is_direct=False,
+        )
+
+        # Deleting applications sets application=NULL on both conversations without violating constraints
+        app1.delete()
+        app2.delete()
+
+        conv1.refresh_from_db()
+        conv2.refresh_from_db()
+        self.assertIsNone(conv1.application)
+        self.assertIsNone(conv2.application)
+        self.assertFalse(conv1.is_direct)
+        self.assertFalse(conv2.is_direct)
+
+        # Deleting opportunities sets opportunity=NULL on both conversations
+        opp1.delete()
+        opp2.delete()
+
+        conv1.refresh_from_db()
+        conv2.refresh_from_db()
+        self.assertIsNone(conv1.opportunity)
+        self.assertIsNone(conv2.opportunity)
+
+        # Creating a direct conversation between the same pair succeeds without error
+        direct_conv = Conversation.objects.create(
+            user_one=self.student_a,
+            user_two=self.student_b,
+            is_direct=True,
+        )
+        self.assertTrue(direct_conv.is_direct)
+
+        # Pair now has 3 conversations total: 2 historical orphaned and 1 direct
+        u1, u2 = (self.student_a, self.student_b) if self.student_a.id < self.student_b.id else (self.student_b, self.student_a)
+        total_convs = Conversation.objects.filter(user_one=u1, user_two=u2).count()
+        self.assertEqual(total_convs, 3)
+
+    def test_duplicate_pending_message_request_raises_integrity_error(self):
+        MessageRequest.objects.create(
+            sender=self.student_a,
+            receiver=self.student_b,
+            status=MessageRequest.Status.PENDING,
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            MessageRequest.objects.create(
+                sender=self.student_a,
+                receiver=self.student_b,
+                status=MessageRequest.Status.PENDING,
+            )
+
+
+class ChatMessageRequestAPITests(APITestCase):
+    """
+    API tests for student-to-student message requests.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+        # Sender student
+        self.student1 = User.objects.create_user(
+            email="s1_req@example.com",
+            password="Password123!",
+            full_name="Student One",
+            role="student",
+            is_verified=True,
+        )
+        StudentProfile.objects.create(user=self.student1, is_discoverable=True)
+
+        # Receiver student
+        self.student2 = User.objects.create_user(
+            email="s2_req@example.com",
+            password="Password123!",
+            full_name="Student Two",
+            role="student",
+            is_verified=True,
+        )
+        StudentProfile.objects.create(user=self.student2, is_discoverable=True)
+
+        # Third student
+        self.student3 = User.objects.create_user(
+            email="s3_req@example.com",
+            password="Password123!",
+            full_name="Student Three",
+            role="student",
+            is_verified=True,
+        )
+        StudentProfile.objects.create(user=self.student3, is_discoverable=True)
+
+        # Hidden student (is_discoverable=False)
+        self.hidden_student = User.objects.create_user(
+            email="hidden_req@example.com",
+            password="Password123!",
+            full_name="Hidden Student",
+            role="student",
+            is_verified=True,
+        )
+        StudentProfile.objects.create(user=self.hidden_student, is_discoverable=False)
+
+        # Unverified student
+        self.unverified_student = User.objects.create_user(
+            email="unverified_req@example.com",
+            password="Password123!",
+            full_name="Unverified Student",
+            role="student",
+            is_verified=False,
+        )
+        StudentProfile.objects.create(user=self.unverified_student, is_discoverable=True)
+
+        # Inactive student
+        self.inactive_student = User.objects.create_user(
+            email="inactive_req@example.com",
+            password="Password123!",
+            full_name="Inactive Student",
+            role="student",
+            is_verified=True,
+            is_active=False,
+        )
+        StudentProfile.objects.create(user=self.inactive_student, is_discoverable=True)
+
+        # Provider user
+        self.provider = User.objects.create_user(
+            email="provider_req@example.com",
+            password="Password123!",
+            full_name="Provider User",
+            role="provider",
+            is_verified=True,
+        )
+
+        self.client.force_authenticate(user=self.student1)
+
+    def test_create_request_success(self):
+        res = self.client.post(
+            "/api/chat/requests/",
+            {"receiver_id": self.student2.id, "intro": "Hello there! Would love to connect."},
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["receiver"]["id"], self.student2.id)
+        self.assertEqual(res.data["receiver"]["full_name"], "Student Two")
+        self.assertNotIn("email", res.data["receiver"])
+        self.assertEqual(res.data["intro"], "Hello there! Would love to connect.")
+        self.assertEqual(res.data["status"], "pending")
+        self.assertNotIn("declined_at", res.data)
+
+        # Verify DB
+        req = MessageRequest.objects.get(id=res.data["id"])
+        self.assertEqual(req.status, MessageRequest.Status.PENDING)
+        self.assertEqual(req.sender, self.student1)
+        self.assertEqual(req.receiver, self.student2)
+
+        # Verify notification
+        notif = Notification.objects.filter(
+            recipient=self.student2,
+            notification_type=Notification.NotificationType.CHAT_REQUEST_RECEIVED,
+        ).first()
+        self.assertIsNotNone(notif)
+        self.assertIsNone(notif.actor)
+        self.assertNotIn("connect", notif.message)
+        self.assertIn("Student One", notif.message)
+
+    def test_create_request_notification_failure_swallowed(self):
+        with patch("apps.chat.views.create_notification", side_effect=Exception("Notification service failure")):
+            res = self.client.post(
+                "/api/chat/requests/",
+                {"receiver_id": self.student3.id, "intro": "Resilient intro"},
+            )
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+            self.assertTrue(
+                MessageRequest.objects.filter(
+                    sender=self.student1,
+                    receiver=self.student3,
+                    status=MessageRequest.Status.PENDING,
+                ).exists()
+            )
+
+    def test_create_request_role_and_verification_checks(self):
+        # Provider cannot send message request
+        self.client.force_authenticate(user=self.provider)
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data["detail"], "Only students can send message requests.")
+
+        # Unverified student cannot send message request
+        self.client.force_authenticate(user=self.unverified_student)
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data["detail"], "You must verify your email to send message requests.")
+
+    def test_create_request_receiver_lookup_first(self):
+        # Hidden receiver returns 404
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.hidden_student.id})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["detail"], "User not found.")
+
+        # Inactive receiver returns 404
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.inactive_student.id})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["detail"], "User not found.")
+
+        # Unverified receiver returns 404
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.unverified_student.id})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["detail"], "User not found.")
+
+        # Provider receiver returns 404
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.provider.id})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["detail"], "User not found.")
+
+        # Non-existent receiver returns 404
+        res = self.client.post("/api/chat/requests/", {"receiver_id": 999999})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["detail"], "User not found.")
+
+    def test_create_request_self_request_returns_400(self):
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student1.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["detail"], "You cannot send a message request to yourself.")
+
+    def test_create_request_active_conversation_blocks(self):
+        # 1. Direct conversation blocks
+        direct_conv = Conversation.objects.create(
+            user_one=self.student1,
+            user_two=self.student2,
+            is_direct=True,
+        )
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["detail"], "You already have an active conversation with this user.")
+        self.assertEqual(res.data["conversation_id"], direct_conv.id)
+        direct_conv.delete()
+
+        # 2. Application-based conversation blocks
+        opp = Opportunity.objects.create(poster=self.student1, title="Test Opp", description="Desc")
+        app = Application.objects.create(opportunity=opp, applicant=self.student2, status=Application.Status.APPLIED)
+        app_conv = Conversation.objects.create(
+            user_one=self.student1,
+            user_two=self.student2,
+            application=app,
+            opportunity=opp,
+            is_direct=False,
+        )
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["conversation_id"], app_conv.id)
+
+        # 3. Orphaned conversation blocks
+        app.delete()
+        app_conv.refresh_from_db()
+        self.assertIsNone(app_conv.application)
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["conversation_id"], app_conv.id)
+        app_conv.delete()
+
+        # 4. Withdrawn application conversation does NOT block
+        app_w = Application.objects.create(opportunity=opp, applicant=self.student2, status=Application.Status.WITHDRAWN)
+        withdrawn_conv = Conversation.objects.create(
+            user_one=self.student1,
+            user_two=self.student2,
+            application=app_w,
+            opportunity=opp,
+            is_direct=False,
+        )
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_create_request_duplicate_pending_returns_400(self):
+        res1 = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        res2 = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res2.data["detail"], "A pending request already exists for this user.")
+
+    def test_create_request_duplicate_pending_integrity_error_handled(self):
+        with patch.object(MessageRequest.objects, "create", side_effect=IntegrityError("duplicate pending")):
+            res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(res.data["detail"], "A pending request already exists for this user.")
+
+    def test_create_request_reverse_pending_returns_400_with_request_id(self):
+        reverse_req = MessageRequest.objects.create(
+            sender=self.student2,
+            receiver=self.student1,
+            status=MessageRequest.Status.PENDING,
+        )
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["detail"], "This user has already sent you a request.")
+        self.assertEqual(res.data["request_id"], reverse_req.id)
+
+    def test_create_request_daily_limit_counts_cancelled(self):
+        # Create 10 requests in all statuses including cancelled
+        for i in range(10):
+            stat = MessageRequest.Status.CANCELLED if i % 2 == 0 else MessageRequest.Status.DECLINED
+            MessageRequest.objects.create(
+                sender=self.student1,
+                receiver=self.student3,
+                status=stat,
+            )
+
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["detail"], "Daily request limit reached. Please try again tomorrow.")
+
+        # Move one request to 25 hours ago
+        old_req = MessageRequest.objects.filter(sender=self.student1).first()
+        old_req.created_at = timezone.now() - timedelta(hours=25)
+        old_req.save(update_fields=["created_at"])
+
+        res_ok = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
+
+    def test_create_request_cooldown_after_decline(self):
+        # Request declined 3 days ago (< 7 days)
+        MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.DECLINED,
+            declined_at=timezone.now() - timedelta(days=3),
+        )
+
+        res = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        # Must return generic message without mentioning decline or dates
+        self.assertEqual(res.data["detail"], "You can't send a request to this user right now.")
+        self.assertNotIn("decline", res.data["detail"].lower())
+        self.assertNotIn("day", res.data["detail"].lower())
+
+        # Update decline to 8 days ago (> 7 days)
+        MessageRequest.objects.filter(sender=self.student1, receiver=self.student2).update(
+            declined_at=timezone.now() - timedelta(days=8)
+        )
+        res_ok = self.client.post("/api/chat/requests/", {"receiver_id": self.student2.id})
+        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
+
+    def test_no_declined_at_in_any_response(self):
+        MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.DECLINED,
+            declined_at=timezone.now() - timedelta(days=10),
+        )
+
+        # Outgoing list
+        res_out = self.client.get("/api/chat/requests/outgoing/")
+        self.assertEqual(res_out.status_code, status.HTTP_200_OK)
+        results = res_out.data["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "declined")
+        self.assertNotIn("declined_at", results[0])
+        self.assertNotIn("declined_at", json.dumps(res_out.data))
+
+        # Incoming list
+        self.client.force_authenticate(user=self.student2)
+        res_in = self.client.get("/api/chat/requests/incoming/")
+        self.assertEqual(res_in.status_code, status.HTTP_200_OK)
+        self.assertNotIn("declined_at", json.dumps(res_in.data))
+
+    def test_incoming_list_shows_pending_only_and_hides_inactive_senders(self):
+        # 1. Pending from active Student 1
+        req1 = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            intro="Active sender intro",
+            status=MessageRequest.Status.PENDING,
+        )
+        # 2. Declined from Student 3
+        MessageRequest.objects.create(
+            sender=self.student3,
+            receiver=self.student2,
+            intro="Declined intro",
+            status=MessageRequest.Status.DECLINED,
+        )
+        # 3. Pending from Inactive Student
+        MessageRequest.objects.create(
+            sender=self.inactive_student,
+            receiver=self.student2,
+            intro="Inactive sender intro",
+            status=MessageRequest.Status.PENDING,
+        )
+
+        self.client.force_authenticate(user=self.student2)
+        res = self.client.get("/api/chat/requests/incoming/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], req1.id)
+        self.assertEqual(results[0]["intro"], "Active sender intro")
+        self.assertEqual(results[0]["sender"]["id"], self.student1.id)
+        self.assertEqual(results[0]["sender"]["full_name"], "Student One")
+        self.assertNotIn("email", results[0]["sender"])
+
+    def test_outgoing_list_shows_all_user_requests(self):
+        MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            intro="Intro 1",
+            status=MessageRequest.Status.PENDING,
+        )
+        MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student3,
+            intro="Intro 2",
+            status=MessageRequest.Status.CANCELLED,
+        )
+
+        res = self.client.get("/api/chat/requests/outgoing/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data["results"]
+        self.assertEqual(len(results), 2)
+        statuses = {r["status"] for r in results}
+        self.assertEqual(statuses, {"pending", "cancelled"})
+
+    def test_accept_request_success_and_closes_opposite(self):
+        # Student 1 -> Student 2 pending
+        req1 = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            intro="Req 1",
+            status=MessageRequest.Status.PENDING,
+        )
+        # Student 2 -> Student 1 pending (opposite direction)
+        req2 = MessageRequest.objects.create(
+            sender=self.student2,
+            receiver=self.student1,
+            intro="Req 2",
+            status=MessageRequest.Status.PENDING,
+        )
+
+        self.client.force_authenticate(user=self.student2)
+        res = self.client.post(f"/api/chat/requests/{req1.id}/accept/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["detail"], "Request accepted.")
+        conv_id = res.data["conversation_id"]
+        self.assertIsNotNone(conv_id)
+
+        # Direct conversation created with is_direct=True
+        conv = Conversation.objects.get(id=conv_id)
+        self.assertTrue(conv.is_direct)
+
+        # Both requests are marked accepted with the same conversation
+        req1.refresh_from_db()
+        req2.refresh_from_db()
+        self.assertEqual(req1.status, MessageRequest.Status.ACCEPTED)
+        self.assertEqual(req1.conversation, conv)
+        self.assertEqual(req2.status, MessageRequest.Status.ACCEPTED)
+        self.assertEqual(req2.conversation, conv)
+
+        # Notification created for sender (student1)
+        notif = Notification.objects.filter(
+            recipient=self.student1,
+            notification_type=Notification.NotificationType.CHAT_REQUEST_ACCEPTED,
+        ).first()
+        self.assertIsNotNone(notif)
+        self.assertIsNone(notif.actor)
+        self.assertIn("Student Two accepted", notif.message)
+
+    def test_accept_request_idempotent(self):
+        req = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.PENDING,
+        )
+        self.client.force_authenticate(user=self.student2)
+        res1 = self.client.post(f"/api/chat/requests/{req.id}/accept/")
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        conv_id = res1.data["conversation_id"]
+
+        # Call accept again
+        res2 = self.client.post(f"/api/chat/requests/{req.id}/accept/")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.data["detail"], "Request already accepted.")
+        self.assertEqual(res2.data["conversation_id"], conv_id)
+
+    def test_accept_request_inactive_or_unverified_sender_returns_400(self):
+        req = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.PENDING,
+        )
+        # Deactivate sender
+        self.student1.is_active = False
+        self.student1.save(update_fields=["is_active"])
+
+        self.client.force_authenticate(user=self.student2)
+        res = self.client.post(f"/api/chat/requests/{req.id}/accept/")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["detail"], "Sender is no longer eligible for chat.")
+
+    def test_accept_request_permissions_and_non_pending(self):
+        req = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.PENDING,
+        )
+        # Sender cannot accept
+        res_sender = self.client.post(f"/api/chat/requests/{req.id}/accept/")
+        self.assertEqual(res_sender.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Third party cannot accept
+        self.client.force_authenticate(user=self.student3)
+        res_third = self.client.post(f"/api/chat/requests/{req.id}/accept/")
+        self.assertEqual(res_third.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Non-pending request cannot be accepted
+        req.status = MessageRequest.Status.DECLINED
+        req.save(update_fields=["status"])
+        self.client.force_authenticate(user=self.student2)
+        res_non_pending = self.client.post(f"/api/chat/requests/{req.id}/accept/")
+        self.assertEqual(res_non_pending.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res_non_pending.data["detail"], "Only pending requests can be accepted.")
+
+    def test_decline_request_success_idempotent_no_notification(self):
+        req = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.PENDING,
+        )
+        self.client.force_authenticate(user=self.student2)
+        res = self.client.post(f"/api/chat/requests/{req.id}/decline/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["detail"], "Request declined.")
+
+        req.refresh_from_db()
+        self.assertEqual(req.status, MessageRequest.Status.DECLINED)
+        self.assertIsNotNone(req.declined_at)
+
+        # Idempotent decline
+        res_idem = self.client.post(f"/api/chat/requests/{req.id}/decline/")
+        self.assertEqual(res_idem.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_idem.data["detail"], "Request already declined.")
+
+        # Decline sends NO notification
+        notifs = Notification.objects.filter(recipient=self.student1)
+        self.assertEqual(notifs.count(), 0)
+
+        # Sender or third party cannot decline (404)
+        self.client.force_authenticate(user=self.student1)
+        res_wrong = self.client.post(f"/api/chat/requests/{req.id}/decline/")
+        self.assertEqual(res_wrong.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cancel_request_success_idempotent(self):
+        req = MessageRequest.objects.create(
+            sender=self.student1,
+            receiver=self.student2,
+            status=MessageRequest.Status.PENDING,
+        )
+        res = self.client.post(f"/api/chat/requests/{req.id}/cancel/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["detail"], "Request cancelled.")
+
+        req.refresh_from_db()
+        self.assertEqual(req.status, MessageRequest.Status.CANCELLED)
+
+        # Idempotent cancel
+        res_idem = self.client.post(f"/api/chat/requests/{req.id}/cancel/")
+        self.assertEqual(res_idem.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_idem.data["detail"], "Request already cancelled.")
+
+        # Receiver cannot cancel (404)
+        self.client.force_authenticate(user=self.student2)
+        res_receiver = self.client.post(f"/api/chat/requests/{req.id}/cancel/")
+        self.assertEqual(res_receiver.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_throttle_scopes_and_settings(self):
+        from apps.chat.views import (
+            ChatRequestAcceptView,
+            ChatRequestCancelView,
+            ChatRequestCreateView,
+            ChatRequestDeclineView,
+            ChatRequestIncomingListView,
+            ChatRequestOutgoingListView,
+        )
+        from django.conf import settings
+
+        self.assertEqual(ChatRequestCreateView.throttle_scope, "chat_request_action")
+        self.assertEqual(ChatRequestAcceptView.throttle_scope, "chat_request_action")
+        self.assertEqual(ChatRequestDeclineView.throttle_scope, "chat_request_action")
+        self.assertEqual(ChatRequestCancelView.throttle_scope, "chat_request_action")
+        self.assertEqual(ChatRequestIncomingListView.throttle_scope, "chat_general")
+        self.assertEqual(ChatRequestOutgoingListView.throttle_scope, "chat_general")
+
+        self.assertIn("chat_request_action", settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"])
+        self.assertEqual(settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["chat_request_action"], "30/hour")
+        self.assertEqual(settings.CHAT_REQUEST_DAILY_LIMIT, 10)
+        self.assertEqual(settings.CHAT_REQUEST_DECLINE_COOLDOWN_DAYS, 7)
+
 
