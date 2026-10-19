@@ -26,6 +26,13 @@ services:
     ports:
       - "6379:6379"
 
+  moto:
+    image: motoserver/moto:5.0.5
+    container_name: nextgig_moto
+    restart: always
+    ports:
+      - "5000:5000"
+
   web:
     build:
       context: ./backend
@@ -43,6 +50,16 @@ services:
       REDIS_CHANNEL_URL: redis://redis:6379/2
       FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
       FCM_ENABLED: ${FCM_ENABLED:-false}
+      AWS_EVENTS_ENABLED: ${AWS_EVENTS_ENABLED:-false}
+      AWS_ENDPOINT_URL: http://moto:5000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_QUEUE_NAME: nextgig-notifications-queue
+      AWS_SQS_DLQ_NAME: nextgig-notifications-dlq
+      AWS_SNS_TOPIC_NAME: nextgig-notifications-topic
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:nextgig-notifications-topic
+      AWS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:nextgig-notifications-topic
     ports:
       - "8000:8000"
     volumes:
@@ -71,6 +88,14 @@ services:
       REDIS_CHANNEL_URL: redis://redis:6379/2
       FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
       FCM_ENABLED: ${FCM_ENABLED:-false}
+      AWS_EVENTS_ENABLED: ${AWS_EVENTS_ENABLED:-false}
+      AWS_ENDPOINT_URL: http://moto:5000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_QUEUE_NAME: nextgig-notifications-queue
+      AWS_SQS_DLQ_NAME: nextgig-notifications-dlq
+      AWS_SNS_TOPIC_NAME: nextgig-notifications-topic
     volumes:
       - ./backend:/app
     depends_on:
@@ -97,6 +122,14 @@ services:
       REDIS_CHANNEL_URL: redis://redis:6379/2
       FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
       FCM_ENABLED: ${FCM_ENABLED:-false}
+      AWS_EVENTS_ENABLED: ${AWS_EVENTS_ENABLED:-false}
+      AWS_ENDPOINT_URL: http://moto:5000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_QUEUE_NAME: nextgig-notifications-queue
+      AWS_SQS_DLQ_NAME: nextgig-notifications-dlq
+      AWS_SNS_TOPIC_NAME: nextgig-notifications-topic
     volumes:
       - ./backend:/app
     depends_on:
@@ -105,6 +138,46 @@ services:
       redis:
         condition: service_started
     command: celery -A config beat --loglevel=info
+
+  lambda_poller:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nextgig_lambda_poller
+    restart: always
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_CACHE_URL: redis://redis:6379/1
+      REDIS_CHANNEL_URL: redis://redis:6379/2
+      FIREBASE_CREDENTIALS_FILE: /app/firebase-service-account.json
+      FCM_ENABLED: ${FCM_ENABLED:-false}
+      AWS_EVENTS_ENABLED: "false"
+      AWS_ENDPOINT_URL: http://moto:5000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_QUEUE_NAME: nextgig-notifications-queue
+      AWS_SQS_DLQ_NAME: nextgig-notifications-dlq
+      AWS_SNS_TOPIC_NAME: nextgig-notifications-topic
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:nextgig-notifications-topic
+      AWS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:nextgig-notifications-topic
+    volumes:
+      - ./backend:/app
+    depends_on:
+      moto:
+        condition: service_started
+      web:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: python manage.py poll_notification_queue
 
 volumes:
   postgres_data:

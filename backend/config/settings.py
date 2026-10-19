@@ -11,7 +11,9 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import logging
 import os
+import re
 import sys
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -445,5 +447,94 @@ FIREBASE_CREDENTIALS_FILE = os.getenv(
     "FIREBASE_CREDENTIALS_FILE",
     os.path.join(BASE_DIR, "firebase-service-account.json"),
 )
+
+# AWS SQS & SNS Configuration for Notifications Pipeline
+_raw_aws_events_enabled = os.getenv("AWS_EVENTS_ENABLED", "false").strip().lower()
+AWS_EVENTS_ENABLED = _raw_aws_events_enabled in ("true", "1", "yes")
+AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", None)
+if AWS_ENDPOINT_URL and AWS_ENDPOINT_URL.strip() == "":
+    AWS_ENDPOINT_URL = None
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "test")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "test")
+AWS_SQS_QUEUE_NAME = os.getenv("AWS_SQS_QUEUE_NAME", "nextgig-notifications-queue")
+AWS_SQS_DLQ_NAME = os.getenv("AWS_SQS_DLQ_NAME", "nextgig-notifications-dlq")
+AWS_SNS_TOPIC_NAME = os.getenv("AWS_SNS_TOPIC_NAME", "nextgig-notifications-topic")
+AWS_SNS_TOPIC_ARN = os.getenv("AWS_SNS_TOPIC_ARN", "")
+INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET", "")
+
+if TESTING:
+    AWS_EVENTS_ENABLED = False
+    INTERNAL_SERVICE_SECRET = "test-internal-secret"
+    AWS_ACCESS_KEY_ID = "test"
+    AWS_SECRET_ACCESS_KEY = "test"
+
+
+class RedactSecretFilter(logging.Filter):
+    """
+    Scrubs internal delivery secret from log messages and arguments.
+    Replaces /api/internal/notifications/deliver/<secret>/ with [REDACTED].
+    """
+    PATTERN = re.compile(r"(/api/internal/notifications/deliver/)[^/\s?#]+", re.IGNORECASE)
+
+    def filter(self, record):
+        if isinstance(record.msg, str):
+            record.msg = self.PATTERN.sub(r"\1[REDACTED]", record.msg)
+        if record.args:
+            if isinstance(record.args, tuple):
+                record.args = tuple(
+                    self.PATTERN.sub(r"\1[REDACTED]", a) if isinstance(a, str) else a
+                    for a in record.args
+                )
+            elif isinstance(record.args, dict):
+                record.args = {
+                    k: self.PATTERN.sub(r"\1[REDACTED]", v) if isinstance(v, str) else v
+                    for k, v in record.args.items()
+                }
+        return True
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "redact_secret": {
+            "()": "config.settings.RedactSecretFilter",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "filters": ["redact_secret"],
+        },
+    },
+    "loggers": {
+        "django.server": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "daphne": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "daphne.access": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}
+
 
 

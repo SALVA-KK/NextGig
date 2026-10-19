@@ -24,6 +24,7 @@ from apps.accounts.admin_views import (
     AdminUserListView,
     AdminVerifyProviderView,
 )
+from apps.notifications.internal_views import NotificationDeliverInternalView
 from apps.opportunities.admin_views import (
     AdminDeleteOpportunityView,
     AdminForceCloseOpportunityView,
@@ -46,6 +47,13 @@ urlpatterns = [
     path("api/opportunities/", include("apps.opportunities.urls")),
     # Notifications API endpoints
     path("api/notifications/", include("apps.notifications.urls")),
+    # Internal notification delivery endpoint (SQS -> Lambda -> SNS -> HTTP)
+    path(
+        "api/internal/notifications/deliver/<str:secret>/",
+        NotificationDeliverInternalView.as_view(),
+        name="internal-notification-deliver",
+    ),
+
     # Assistant API endpoints
     path("api/assistant/", include("apps.assistant.urls")),
     # Chat API endpoints
