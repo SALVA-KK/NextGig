@@ -74,6 +74,31 @@ class RedactionFilterTests(TestCase):
         self.assertNotIn("dict-secret-token", record.args["path"])
         self.assertIn("/api/internal/notifications/deliver/[REDACTED]/", record.args["path"])
 
+    def test_redaction_filter_replaces_secret_in_daphne_channels_server_dict_args(self):
+        record = logging.LogRecord(
+            name="django.channels.server",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=10,
+            msg="HTTP %(method)s %(path)s %(status)s [%(time_taken).2f, %(client)s]",
+            args=(
+                {
+                    "method": "POST",
+                    "path": "/api/internal/notifications/deliver/daphne-secret-12345/",
+                    "status": 200,
+                    "time_taken": 0.05,
+                    "client": "127.0.0.1",
+                },
+            ),
+            exc_info=None,
+        )
+        self.assertTrue(self.filter.filter(record))
+        formatted = record.getMessage()
+        self.assertNotIn("daphne-secret-12345", formatted)
+        self.assertIn("/api/internal/notifications/deliver/[REDACTED]/", formatted)
+        self.assertIn("HTTP POST /api/internal/notifications/deliver/[REDACTED]/ 200 [0.05, 127.0.0.1]", formatted)
+
+
 
 class SQSPublishAndSignalTests(TestCase):
     def setUp(self):

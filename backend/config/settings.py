@@ -509,6 +509,11 @@ LOGGING = {
         },
     },
     "loggers": {
+        "django.channels.server": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "django.server": {
             "handlers": ["console"],
             "level": "INFO",
