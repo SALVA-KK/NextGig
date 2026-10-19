@@ -90,8 +90,12 @@ export function useNotificationSocket(onNotification, onChatMessage) {
             const data = JSON.parse(event.data);
             if (data.type === 'notification' && data.notification && onNotificationRef.current) {
               onNotificationRef.current(data.notification);
-            } else if (data.type === 'chat_message' && data.message && onChatMessageRef.current) {
-              onChatMessageRef.current(data.message);
+            } else if (
+              (data.type === 'chat_message' || data.type === 'chat_message_deleted') &&
+              data.message &&
+              onChatMessageRef.current
+            ) {
+              onChatMessageRef.current(data.message, data.type);
             }
           } catch (err) {
             console.error('[NotificationWS] Failed to parse message JSON:', err);

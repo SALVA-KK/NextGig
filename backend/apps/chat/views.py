@@ -5,8 +5,8 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, connection, transaction
-from django.db.models import Count, Exists, OuterRef, Q, Subquery
+from django.db import IntegrityError, connection, models, transaction
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, Subquery, Value, When
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -133,9 +133,18 @@ class ConversationListCreateView(APIView):
     throttle_scope = "chat_general"
 
     def get(self, request, *args, **kwargs):
-        last_msg_subquery = Message.objects.filter(
-            conversation=OuterRef("pk")
-        ).order_by("-created_at", "-id").values("body")[:1]
+        last_msg_subquery = (
+            Message.objects.filter(conversation=OuterRef("pk"))
+            .order_by("-created_at", "-id")
+            .annotate(
+                preview_text=Case(
+                    When(deleted_at__isnull=False, then=Value("This message was deleted")),
+                    default=F("body"),
+                    output_field=models.TextField(),
+                )
+            )
+            .values("preview_text")[:1]
+        )
 
         has_messages = Exists(Message.objects.filter(conversation=OuterRef("pk")))
 
@@ -148,7 +157,9 @@ class ConversationListCreateView(APIView):
             .annotate(
                 unread_count=Count(
                     "messages",
-                    filter=Q(messages__read_at__isnull=True) & ~Q(messages__sender=request.user),
+                    filter=Q(messages__read_at__isnull=True)
+                    & Q(messages__deleted_at__isnull=True)
+                    & ~Q(messages__sender=request.user),
                     distinct=True,
                 ),
                 last_message_body=Subquery(last_msg_subquery),
@@ -232,9 +243,18 @@ class ConversationDetailView(APIView):
     throttle_scope = "chat_general"
 
     def get(self, request, conversation_id, *args, **kwargs):
-        last_msg_subquery = Message.objects.filter(
-            conversation=OuterRef("pk")
-        ).order_by("-created_at", "-id").values("body")[:1]
+        last_msg_subquery = (
+            Message.objects.filter(conversation=OuterRef("pk"))
+            .order_by("-created_at", "-id")
+            .annotate(
+                preview_text=Case(
+                    When(deleted_at__isnull=False, then=Value("This message was deleted")),
+                    default=F("body"),
+                    output_field=models.TextField(),
+                )
+            )
+            .values("preview_text")[:1]
+        )
 
         conversation = (
             Conversation.objects.filter(
@@ -245,7 +265,9 @@ class ConversationDetailView(APIView):
             .annotate(
                 unread_count=Count(
                     "messages",
-                    filter=Q(messages__read_at__isnull=True) & ~Q(messages__sender=request.user),
+                    filter=Q(messages__read_at__isnull=True)
+                    & Q(messages__deleted_at__isnull=True)
+                    & ~Q(messages__sender=request.user),
                     distinct=True,
                 ),
                 last_message_body=Subquery(last_msg_subquery),
@@ -299,10 +321,10 @@ class MessageListCreateView(APIView):
         paginator = ChatMessagePagination()
         page = paginator.paginate_queryset(queryset, request, view=self)
         if page is not None:
-            serializer = MessageSerializer(page, many=True)
+            serializer = MessageSerializer(page, many=True, context={"request": request})
             return paginator.get_paginated_response(serializer.data)
 
-        serializer = MessageSerializer(queryset, many=True)
+        serializer = MessageSerializer(queryset, many=True, context={"request": request})
         return Response(serializer.data)
 
     def post(self, request, conversation_id, *args, **kwargs):
@@ -382,6 +404,8 @@ class MessageListCreateView(APIView):
             },
             "body": message.body,
             "created_at": message.created_at.isoformat(),
+            "is_mine": False,
+            "is_deleted": False,
         }
 
         def _push_chat_message():
@@ -400,7 +424,7 @@ class MessageListCreateView(APIView):
 
         transaction.on_commit(_push_chat_message)
 
-        serializer = MessageSerializer(message)
+        serializer = MessageSerializer(message, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -426,6 +450,7 @@ class ConversationMarkReadView(APIView):
         Message.objects.filter(
             conversation=conversation,
             read_at__isnull=True,
+            deleted_at__isnull=True,
         ).exclude(sender=request.user).update(read_at=now)
 
         new_unread_total = (
@@ -434,6 +459,7 @@ class ConversationMarkReadView(APIView):
                     Q(user_one=request.user) | Q(user_two=request.user)
                 ),
                 read_at__isnull=True,
+                deleted_at__isnull=True,
             )
             .exclude(sender=request.user)
             .count()
@@ -446,6 +472,60 @@ class ConversationMarkReadView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class MessageDeleteView(APIView):
+    """
+    DELETE: Allows the sender of a message to delete it (tombstone).
+    Sets deleted_at = now and body = "" (erased from database).
+    Idempotent: deleting an already deleted message returns 200 with is_deleted=True.
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "chat_general"
+
+    def delete(self, request, conversation_id, message_id, *args, **kwargs):
+        conversation = (
+            Conversation.objects.filter(id=conversation_id)
+            .filter(Q(user_one=request.user) | Q(user_two=request.user))
+            .first()
+        )
+        if not conversation:
+            raise Http404("Conversation not found.")
+
+        message = Message.objects.filter(id=message_id, conversation=conversation).first()
+        if not message or message.sender_id != request.user.id:
+            raise Http404("Message not found.")
+
+        recipient = conversation.get_other_participant(request.user)
+
+        with transaction.atomic():
+            if message.deleted_at is None:
+                message.deleted_at = timezone.now()
+                message.body = ""
+                message.save(update_fields=["deleted_at", "body"])
+
+        def _push_deleted_message():
+            try:
+                channel_layer = get_channel_layer()
+                if channel_layer is not None:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_notifications_{recipient.id}",
+                        {
+                            "type": "chat.message_deleted",
+                            "message": {
+                                "id": message.id,
+                                "conversation_id": conversation.id,
+                            },
+                        },
+                    )
+            except Exception:
+                logger.warning("Failed to push chat message deleted event over channel layer")
+
+        transaction.on_commit(_push_deleted_message)
+
+        serializer = MessageSerializer(message, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class UnreadChatCountView(APIView):
@@ -463,6 +543,7 @@ class UnreadChatCountView(APIView):
                     Q(user_one=request.user) | Q(user_two=request.user)
                 ),
                 read_at__isnull=True,
+                deleted_at__isnull=True,
             )
             .exclude(sender=request.user)
             .count()

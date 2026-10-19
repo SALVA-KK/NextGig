@@ -10,6 +10,7 @@ from .views import (
     ConversationDetailView,
     ConversationListCreateView,
     ConversationMarkReadView,
+    MessageDeleteView,
     MessageListCreateView,
     UnreadChatCountView,
 )
@@ -20,6 +21,7 @@ urlpatterns = [
     path("conversations/", ConversationListCreateView.as_view(), name="conversation-list-create"),
     path("conversations/<int:conversation_id>/", ConversationDetailView.as_view(), name="conversation-detail"),
     path("conversations/<int:conversation_id>/messages/", MessageListCreateView.as_view(), name="conversation-messages"),
+    path("conversations/<int:conversation_id>/messages/<int:message_id>/", MessageDeleteView.as_view(), name="conversation-message-delete"),
     path("conversations/<int:conversation_id>/read/", ConversationMarkReadView.as_view(), name="conversation-mark-read"),
     path("unread-count/", UnreadChatCountView.as_view(), name="chat-unread-count"),
     path("requests/", ChatRequestCreateView.as_view(), name="request-create"),

@@ -407,7 +407,8 @@ export const authService = {
       const response = await api.get('/accounts/profile/');
       const data = response.data;
       if (data) {
-        localStorage.setItem('user', JSON.stringify(data));
+        const existing = authService.getCurrentUser() || {};
+        localStorage.setItem('user', JSON.stringify({ ...existing, ...data }));
       }
       return data;
     } catch (error) {
@@ -427,7 +428,8 @@ export const authService = {
       const response = await api.patch('/accounts/profile/', profileData);
       const data = response.data;
       if (data) {
-        localStorage.setItem('user', JSON.stringify(data));
+        const existing = authService.getCurrentUser() || {};
+        localStorage.setItem('user', JSON.stringify({ ...existing, ...data }));
       }
       return data;
     } catch (error) {

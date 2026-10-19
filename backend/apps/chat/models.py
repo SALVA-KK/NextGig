@@ -99,6 +99,7 @@ class Message(models.Model):
     body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     read_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "chat_messages"

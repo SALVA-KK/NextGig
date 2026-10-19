@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { MessageSquare, Send, AlertCircle, Loader2 } from 'lucide-react';
+import { MessageSquare, Send, AlertCircle, Loader2, Trash2 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import EmptyState from '../../components/common/EmptyState';
 import { chatService } from '../../services/chatService';
@@ -49,6 +50,8 @@ export default function ChatPage() {
   const [messageError, setMessageError] = useState(null);
   const [inputBody, setInputBody] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState(null);
+  const [deletingMessageId, setDeletingMessageId] = useState(null);
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -212,11 +215,38 @@ export default function ChatPage() {
 
   // Real-time chat message push handler
   const handleIncomingChatMessage = useCallback(
-    async (newMsg) => {
-      if (!newMsg || !newMsg.conversation_id) return;
+    async (payload, eventType) => {
+      if (!payload || !payload.conversation_id) return;
 
-      const belongsToActive = activeConversationIdRef.current === newMsg.conversation_id;
+      const isDeleteEvent = eventType === 'chat_message_deleted' || payload.is_deleted;
+      const belongsToActive = activeConversationIdRef.current === payload.conversation_id;
 
+      if (isDeleteEvent) {
+        if (belongsToActive) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === payload.id ? { ...m, is_deleted: true, body: '' } : m))
+          );
+        }
+
+        // Update conversation preview in sidebar list if this conversation's last message was deleted
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id === payload.conversation_id) {
+              return {
+                ...c,
+                last_message_preview: 'This message was deleted',
+              };
+            }
+            return c;
+          })
+        );
+
+        window.dispatchEvent(new CustomEvent('chat:unread-updated'));
+        return;
+      }
+
+      // Normal new message
+      const newMsg = payload;
       if (belongsToActive) {
         // Append message if not duplicate
         setMessages((prev) => {
@@ -266,6 +296,52 @@ export default function ChatPage() {
     },
     [loadConversations]
   );
+
+  // Delete message handler
+  const handleDeleteMessage = async (messageId) => {
+    if (!activeConversationId || !messageId || deletingMessageId) return;
+
+    setDeletingMessageId(messageId);
+    setConfirmingDeleteId(null);
+
+    // Save previous messages for rollback
+    const previousMessages = [...messages];
+
+    // Optimistic update
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, is_deleted: true, body: '' } : m))
+    );
+
+    try {
+      await chatService.deleteMessage(activeConversationId, messageId);
+
+      // Check if deleted message was the latest message in this conversation
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === activeConversationId) {
+            const isLatest = messages.length > 0 && messages[messages.length - 1].id === messageId;
+            if (isLatest) {
+              return {
+                ...c,
+                last_message_preview: 'This message was deleted',
+              };
+            }
+          }
+          return c;
+        })
+      );
+
+      window.dispatchEvent(new CustomEvent('chat:unread-updated'));
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+      // Rollback optimistic update
+      setMessages(previousMessages);
+      const detail = err.response?.data?.detail || 'Failed to delete message. Please try again.';
+      toast.error(detail);
+    } finally {
+      setDeletingMessageId(null);
+    }
+  };
 
   // Hook into WebSocket
   useNotificationSocket(null, handleIncomingChatMessage);
@@ -472,21 +548,69 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     messages.map((msg) => {
-                      const isMe = msg.sender?.id === currentUser?.id;
+                      const isMe = typeof msg.is_mine === 'boolean'
+                        ? msg.is_mine
+                        : Number(msg.sender?.id) === Number(currentUser?.id);
+
+                      const isDeleted = Boolean(msg.is_deleted);
+                      const isConfirming = confirmingDeleteId === msg.id;
+
                       return (
                         <div
                           key={msg.id}
-                          className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                          className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
                         >
-                          <div
-                            className={`max-w-[85%] sm:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                              isMe
-                                ? 'bg-indigo-600 text-white rounded-br-xs shadow-xs'
-                                : 'bg-white text-slate-800 border border-slate-200 rounded-bl-xs shadow-xs'
-                            }`}
-                          >
-                            {/* Plain text rendering only: no HTML interpretation */}
-                            {msg.body}
+                          <div className={`flex items-center gap-1.5 max-w-[90%] sm:max-w-md ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                            {/* Bubble */}
+                            <div
+                              className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                                isDeleted
+                                  ? 'bg-slate-100 text-slate-500 italic border border-slate-200 shadow-xs'
+                                  : isMe
+                                  ? 'bg-indigo-600 text-white rounded-br-xs shadow-xs'
+                                  : 'bg-white text-slate-800 border border-slate-200 rounded-bl-xs shadow-xs'
+                              }`}
+                            >
+                              {/* Plain text rendering only: no HTML interpretation */}
+                              {isDeleted ? 'This message was deleted' : msg.body}
+                            </div>
+
+                            {/* Sender-only trash button on non-deleted messages */}
+                            {isMe && !isDeleted && (
+                              <div className="relative flex items-center shrink-0">
+                                {isConfirming ? (
+                                  <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200 rounded-xl shadow-xs text-xs whitespace-nowrap z-10">
+                                    <span className="text-slate-600 font-medium">Delete for everyone?</span>
+                                    <button
+                                      type="button"
+                                      disabled={deletingMessageId === msg.id}
+                                      onClick={() => handleDeleteMessage(msg.id)}
+                                      className="px-2 py-0.5 bg-red-600 text-white rounded-md font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
+                                    >
+                                      {deletingMessageId === msg.id ? 'Deleting...' : 'Yes'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={deletingMessageId === msg.id}
+                                      onClick={() => setConfirmingDeleteId(null)}
+                                      className="px-2 py-0.5 text-slate-600 hover:text-slate-900 rounded-md transition-colors cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmingDeleteId(msg.id)}
+                                    aria-label="Delete message"
+                                    title="Delete message"
+                                    className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-slate-100 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <span className="text-[10px] text-slate-400 mt-1 px-1">
                             {formatMessageTime(msg.created_at)}

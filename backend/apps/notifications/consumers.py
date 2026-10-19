@@ -99,3 +99,15 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
                 "message": message_data,
             })
 
+    async def chat_message_deleted(self, event):
+        """
+        Handler invoked when a chat message deleted event is sent to the user's notification group.
+        Sends a JSON event with shape: {"type": "chat_message_deleted", "message": <data>}
+        """
+        message_data = event.get("message")
+        if message_data is not None:
+            await self.send_json({
+                "type": "chat_message_deleted",
+                "message": message_data,
+            })
+

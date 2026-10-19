@@ -61,6 +61,16 @@ export const chatService = {
   },
 
   /**
+   * Delete a sent message (tombstone).
+   * @param {number} conversationId
+   * @param {number} messageId
+   */
+  async deleteMessage(conversationId, messageId) {
+    const response = await api.delete(`/chat/conversations/${conversationId}/messages/${messageId}/`);
+    return response.data;
+  },
+
+  /**
    * Get total unread chat messages for the current user.
    */
   async getUnreadCount() {

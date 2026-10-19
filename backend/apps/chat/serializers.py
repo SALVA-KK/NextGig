@@ -26,6 +26,8 @@ class MessageSerializer(serializers.ModelSerializer):
     """
     conversation_id = serializers.IntegerField(source="conversation.id", read_only=True)
     sender = ChatParticipantSerializer(read_only=True)
+    is_mine = serializers.SerializerMethodField()
+    is_deleted = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
@@ -36,8 +38,33 @@ class MessageSerializer(serializers.ModelSerializer):
             "body",
             "created_at",
             "read_at",
+            "is_mine",
+            "is_deleted",
         ]
-        read_only_fields = ["id", "conversation_id", "sender", "created_at", "read_at"]
+        read_only_fields = [
+            "id",
+            "conversation_id",
+            "sender",
+            "created_at",
+            "read_at",
+            "is_mine",
+            "is_deleted",
+        ]
+
+    def get_is_mine(self, obj):
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
+            return False
+        return obj.sender_id == request.user.id
+
+    def get_is_deleted(self, obj):
+        return obj.deleted_at is not None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.deleted_at is not None:
+            data["body"] = ""
+        return data
 
 
 class ConversationListSerializer(serializers.ModelSerializer):
@@ -84,13 +111,19 @@ class ConversationListSerializer(serializers.ModelSerializer):
         }
 
     def get_last_message_preview(self, obj):
-        body = getattr(obj, "last_message_body", None)
-        if body is None:
+        preview = getattr(obj, "last_message_body", None)
+        if preview is None:
             last_msg = obj.messages.order_by("-created_at", "-id").first()
-            body = last_msg.body if last_msg else ""
-        if not body:
+            if not last_msg:
+                return ""
+            if last_msg.deleted_at is not None:
+                return "This message was deleted"
+            preview = last_msg.body or ""
+        if not preview:
             return ""
-        return (body[:100] + "...") if len(body) > 100 else body
+        if preview == "This message was deleted":
+            return preview
+        return (preview[:100] + "...") if len(preview) > 100 else preview
 
 
 class MessageRequestIncomingSerializer(serializers.ModelSerializer):
