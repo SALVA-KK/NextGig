@@ -167,6 +167,10 @@ STATIC_URL = 'static/'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+from config.storage_config import build_storage_config
+
+STORAGES = build_storage_config(os.environ, testing=TESTING)
+
 
 
 REST_FRAMEWORK = {

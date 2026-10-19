@@ -1518,37 +1518,35 @@ class ResumeParseView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        file_path = resume.file.path if hasattr(resume.file, "path") else None
-        filename = resume.original_filename or (os.path.basename(file_path) if file_path else "")
-
-        if not file_path or not os.path.exists(file_path):
+        filename = resume.original_filename or (os.path.basename(resume.file.name) if resume.file else "")
+        ext = os.path.splitext(filename)[1].lower()
+        extracted_text = ""
+        try:
+            with resume.file.open("rb") as file_handle:
+                if ext == ".pdf":
+                    import pypdf
+                    reader = pypdf.PdfReader(file_handle)
+                    pages_text = []
+                    for page in reader.pages:
+                        txt = page.extract_text()
+                        if txt:
+                            pages_text.append(txt)
+                    extracted_text = "\n".join(pages_text)
+                elif ext == ".docx":
+                    import docx
+                    doc = docx.Document(file_handle)
+                    paragraphs_text = [p.text for p in doc.paragraphs if p.text]
+                    extracted_text = "\n".join(paragraphs_text)
+                else:
+                    return Response(
+                        {"detail": "Unsupported file format for AI parsing."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+        except FileNotFoundError:
             return Response(
                 {"detail": "Resume file not found on server storage."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        ext = os.path.splitext(filename)[1].lower()
-        extracted_text = ""
-        try:
-            if ext == ".pdf":
-                import pypdf
-                reader = pypdf.PdfReader(file_path)
-                pages_text = []
-                for page in reader.pages:
-                    txt = page.extract_text()
-                    if txt:
-                        pages_text.append(txt)
-                extracted_text = "\n".join(pages_text)
-            elif ext == ".docx":
-                import docx
-                doc = docx.Document(file_path)
-                paragraphs_text = [p.text for p in doc.paragraphs if p.text]
-                extracted_text = "\n".join(paragraphs_text)
-            else:
-                return Response(
-                    {"detail": "Unsupported file format for AI parsing."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
         except Exception as err:
             logger.error("Text extraction failed for resume file %s: %s", filename, err, exc_info=True)
             return Response(
