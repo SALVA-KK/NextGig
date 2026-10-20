@@ -94,6 +94,60 @@ class AssistantChatView(APIView):
         # 1. Build context data
         profile_data = get_student_profile_context(request.user)
 
+        if getattr(settings, "ASSISTANT_USE_LANGGRAPH", False):
+            try:
+                from apps.assistant.rag.langgraph_agent import run_langgraph_agent
+
+                reply_text, valid_opp_objs = run_langgraph_agent(
+                    message=message,
+                    history=history,
+                    user=request.user,
+                    generate_fn=generate_text,
+                    retrieve_fn=retrieve_with_source,
+                )
+                opportunities_data = [
+                    {
+                        "id": opt.id,
+                        "title": opt.title,
+                        "category": opt.category,
+                        "city": opt.city,
+                        "work_mode": opt.work_mode,
+                        "pay_type": opt.pay_type,
+                        "deadline": opt.deadline.isoformat() if opt.deadline else None,
+                    }
+                    for opt in valid_opp_objs
+                ]
+                return Response(
+                    {
+                        "reply": reply_text,
+                        "opportunities": opportunities_data,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            except AIConfigError as exc:
+                logger.error(f"Gemini API failure: {type(exc).__name__}")
+                return Response(
+                    {"detail": "The assistant is not available right now."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            except AIBusyError as exc:
+                logger.error(f"Gemini API failure: {type(exc).__name__}")
+                return Response(
+                    {"detail": "The assistant is busy right now. Please try again in a minute."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            except AIFailureError as exc:
+                logger.error(f"Gemini API failure: {type(exc).__name__}")
+                return Response(
+                    {"detail": "The assistant couldn't answer right now. Please try again."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Assistant LangGraph error (%s); falling back to existing flow",
+                    type(exc).__name__,
+                )
+
         t0 = time.perf_counter()
         if getattr(settings, "ASSISTANT_USE_RAG", False):
             try:
