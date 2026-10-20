@@ -127,13 +127,19 @@ export default function OpportunityDetail() {
       navigate('/login');
       return;
     }
+    const prevSaved = isSaved;
+    // Optimistic update
+    setIsSaved(!prevSaved);
     setSaveLoading(true);
+
     try {
-      await opportunityService.toggleSaveOpportunity(id, isSaved);
-      setIsSaved(!isSaved);
+      await opportunityService.toggleSaveOpportunity(id, prevSaved);
+      toast.success(prevSaved ? "Removed from saved items" : "Saved to your list");
     } catch (err) {
-      console.error('Save toggle error:', err);
-      toast.error('Could not update saved items. Please try again.');
+      console.error('Error toggling save status:', err);
+      // Rollback on failure
+      setIsSaved(prevSaved);
+      toast.error('Failed to update bookmark. Please try again.');
     } finally {
       setSaveLoading(false);
     }

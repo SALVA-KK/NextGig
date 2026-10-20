@@ -226,20 +226,24 @@ export default function ChatPage() {
           setMessages((prev) =>
             prev.map((m) => (m.id === payload.id ? { ...m, is_deleted: true, body: '' } : m))
           );
-        }
 
-        // Update conversation preview in sidebar list if this conversation's last message was deleted
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id === payload.conversation_id) {
-              return {
-                ...c,
-                last_message_preview: 'This message was deleted',
-              };
-            }
-            return c;
-          })
-        );
+          // Update conversation preview in sidebar list if this conversation's last message was deleted
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id === payload.conversation_id) {
+                return {
+                  ...c,
+                  last_message_preview: 'This message was deleted',
+                };
+              }
+              return c;
+            })
+          );
+        } else {
+          // Conversation is NOT currently open: re-fetch conversation list
+          // so the unread badge and previews are accurately refreshed from backend
+          loadConversations();
+        }
 
         window.dispatchEvent(new CustomEvent('chat:unread-updated'));
         return;

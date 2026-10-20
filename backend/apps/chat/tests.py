@@ -707,11 +707,14 @@ class ChatWebSocketTests(TransactionTestCase):
         self.assertEqual(msg_data["body"], "Realtime Hello")
         self.assertEqual(msg_data["sender"]["id"], self.poster.id)
         self.assertEqual(msg_data["sender"]["full_name"], "WS Poster")
+        self.assertIs(msg_data.get("is_mine"), False)
+        self.assertIs(msg_data.get("is_deleted"), False)
 
-        # Verify privacy: no email or phone in websocket payload
+        # Verify privacy: no email, phone, or address in websocket payload
         ws_json = json.dumps(received_chat)
         self.assertNotIn("email", ws_json)
         self.assertNotIn("phone", ws_json)
+        self.assertNotIn("address", ws_json)
         self.assertNotIn("ws_poster@example.com", ws_json)
 
         # Sender (poster) receives NOTHING on their socket
@@ -723,6 +726,53 @@ class ChatWebSocketTests(TransactionTestCase):
         await comm_applicant.disconnect()
         await comm_poster.disconnect()
         await comm_third.disconnect()
+
+    async def test_websocket_new_chat_message_payload_fields_and_privacy(self):
+        """
+        Verify WebSocket payload for a NEW chat message has:
+        - is_mine == False
+        - is_deleted == False
+        - Contains no email, phone, or address in any field
+        """
+        comm_applicant = WebsocketCommunicator(inner_application, f"/ws/notifications/?token={self.token_applicant}")
+        connected, _ = await comm_applicant.connect()
+        self.assertTrue(connected)
+
+        def _post_message():
+            from rest_framework.test import APIClient
+            client = APIClient()
+            client.force_authenticate(user=self.poster)
+            return client.post(
+                f"/api/chat/conversations/{self.conv.id}/messages/",
+                {"body": "Hello payload test"},
+            )
+
+        res = await sync_to_async(_post_message)()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        received_chat = None
+        for _ in range(3):
+            try:
+                event = await comm_applicant.receive_json_from(timeout=1.0)
+                if event.get("type") == "chat_message":
+                    received_chat = event
+                    break
+            except Exception:
+                break
+
+        self.assertIsNotNone(received_chat, "Recipient did not receive chat_message event")
+        self.assertEqual(received_chat["type"], "chat_message")
+        msg_data = received_chat["message"]
+        self.assertIs(msg_data.get("is_mine"), False)
+        self.assertIs(msg_data.get("is_deleted"), False)
+
+        payload_str = json.dumps(received_chat).lower()
+        self.assertNotIn("email", payload_str)
+        self.assertNotIn("phone", payload_str)
+        self.assertNotIn("address", payload_str)
+        self.assertNotIn(self.poster.email.lower(), payload_str)
+
+        await comm_applicant.disconnect()
 
     def test_channel_layer_failure_does_not_break_saving_or_response(self):
         with patch("apps.chat.views.get_channel_layer") as mock_layer:

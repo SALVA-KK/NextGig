@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 import { Bookmark } from 'lucide-react';
 import DashboardLayout from '../../components/dashboard/DashboardLayout';
 import MyOpportunities from '../../components/provider/MyOpportunities';
@@ -16,7 +17,6 @@ import { opportunityService } from '../../services/opportunityService';
 export default function ProviderDashboard() {
   const location = useLocation();
   const [toastMessage, setToastMessage] = useState(location.state?.successMessage || null);
-  const [saveError, setSaveError] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get('tab');
@@ -127,18 +127,31 @@ export default function ProviderDashboard() {
   }, [savedItems]);
 
   const handleSaveToggle = async (oppId) => {
-    setSaveError(null);
     const isCurrentlySaved = savedIdsSet.has(oppId);
+    const foundInExplore = exploreOpps.find((o) => o.id === oppId);
+    const foundInSaved = savedItems.find((s) => (s.opportunity?.id || s.id) === oppId);
+    const oppObj =
+      foundInExplore ||
+      foundInSaved?.opportunity ||
+      (foundInSaved?.title ? foundInSaved : null);
+
+    const prevSavedItems = savedItems;
+
+    // Optimistic update
+    if (isCurrentlySaved) {
+      setSavedItems((prev) => prev.filter((item) => (item.opportunity?.id || item.id) !== oppId));
+    } else {
+      setSavedItems((prev) => [...prev, { id: oppId, opportunity: oppObj || { id: oppId } }]);
+    }
+
     try {
       await opportunityService.toggleSaveOpportunity(oppId, isCurrentlySaved);
-      if (isCurrentlySaved) {
-        setSavedItems((prev) => prev.filter((item) => (item.opportunity?.id || item.id) !== oppId));
-      } else {
-        await loadSavedOpps();
-      }
+      toast.success(isCurrentlySaved ? "Removed from saved items" : "Saved to your list");
     } catch (err) {
-      console.error('Error toggling saved opportunity:', err);
-      setSaveError('Could not update saved items. Please try again.');
+      console.error('Error toggling save status:', err);
+      // Rollback on failure
+      setSavedItems(prevSavedItems);
+      toast.error('Failed to update bookmark. Please try again.');
     }
   };
 
@@ -220,31 +233,6 @@ export default function ProviderDashboard() {
               <span>{toastMessage}</span>
               <button
                 onClick={() => setToastMessage(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {saveError && (
-            <div
-              style={{
-                padding: '12px 16px',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                fontSize: '14px',
-                backgroundColor: '#fef2f2',
-                color: '#991b1b',
-                border: '1px solid #fecaca',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <span>{saveError}</span>
-              <button
-                onClick={() => setSaveError(null)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
               >
                 ×
