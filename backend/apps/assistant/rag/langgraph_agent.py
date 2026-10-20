@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph, START, END
 
 from apps.assistant.constants import PLATFORM_FACT_SHEET, SYSTEM_INSTRUCTION_BASE
 from apps.assistant.context import get_student_profile_context
-from apps.assistant.rag.retrieval import retrieve_with_source
+from apps.assistant.rag.retrieval import build_query_text, retrieve_with_source
 from apps.assistant.views import build_conversation
 from apps.common.gemini_client import (
     AIBusyError,
@@ -161,7 +161,8 @@ def create_agent_graph(
                 '2. To inspect the student profile: {"action": "profile"}\n'
                 '3. To answer directly without searching: {"reply": "<your answer>", "opportunity_ids": [<ids from candidate opportunities only>]}\n'
                 "Never include any text outside the JSON object.\n"
-                "If the student asks about opportunities, internships, jobs, gigs, events, or what to apply for, you MUST reply with the retrieve action first. Answer directly only for platform questions or greetings."
+                "If the student asks about opportunities, internships, jobs, gigs, events, or what to apply for, you MUST reply with the retrieve action first. Answer directly only for platform questions or greetings.\n"
+                "If the student refers to earlier opportunities (for example 'those', 'it', 'the first one') or asks about remote, location, pay or deadline, use the opportunities in CANDIDATE OPPORTUNITIES DATA if present; if the list is empty, reply with the retrieve action using keywords from the earlier conversation."
             )
         else:
             action_instructions = (
@@ -323,6 +324,29 @@ def run_langgraph_agent(
     - valid_opp_objs: list of Opportunity instances
     """
     profile_data = get_student_profile_context(user)
+    candidate_dict: Dict[int, Any] = {}
+    candidate_opportunities: List[Dict[str, Any]] = []
+    source = "vector"
+
+    if history:
+        try:
+            retrieve_call = retrieve_fn or retrieve_with_source
+            query_text = build_query_text(message, history)
+            candidate_dict, candidate_opportunities, source = retrieve_call(
+                query_text=query_text,
+                student_profile_data=profile_data,
+            )
+        except (AIConfigError, AIBusyError, AIFailureError):
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Assistant pre-load retrieval error (%s); proceeding with empty candidates",
+                type(exc).__name__,
+            )
+            candidate_dict = {}
+            candidate_opportunities = []
+            source = "vector"
+
     app = create_agent_graph(
         user=user,
         profile_data=profile_data,
@@ -335,9 +359,9 @@ def run_langgraph_agent(
         "final_output": None,
         "pending_action": None,
         "profile_data": profile_data,
-        "candidate_dict": {},
-        "candidate_opportunities": [],
-        "source": "vector",
+        "candidate_dict": candidate_dict,
+        "candidate_opportunities": candidate_opportunities,
+        "source": source,
         "user_message": message,
         "history": history,
         "last_action_text": "",

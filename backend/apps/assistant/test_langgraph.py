@@ -15,6 +15,7 @@ from apps.assistant.rag.langgraph_agent import (
     retrieve_opportunities,
     run_langgraph_agent,
 )
+from apps.assistant.rag.retrieval import build_query_text
 from apps.common.gemini_client import AIBusyError, AIConfigError, AIFailureError
 from apps.opportunities.models import Opportunity
 
@@ -344,6 +345,10 @@ class LangGraphAssistantTestCase(TestCase):
             "If the student asks about opportunities, internships, jobs, gigs, events, or what to apply for, you MUST reply with the retrieve action first. Answer directly only for platform questions or greetings.",
             first_call_sys_inst,
         )
+        self.assertIn(
+            "If the student refers to earlier opportunities (for example 'those', 'it', 'the first one')",
+            first_call_sys_inst,
+        )
 
     # ------------------------------------------------------------------
     # 7. Flag Off: Old path used, langgraph not imported
@@ -437,3 +442,135 @@ class LangGraphAssistantTestCase(TestCase):
         self.assertEqual(data["reply"], "Direct response without retrieval.")
         self.assertEqual(data["opportunities"], [])
         mock_retrieve.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # 10. Follow-up: With history, pre-load retrieval called once with build_query_text
+    # ------------------------------------------------------------------
+    @override_settings(ASSISTANT_USE_LANGGRAPH=True)
+    @patch("apps.assistant.views.retrieve_with_source")
+    @patch("apps.assistant.views.generate_text")
+    def test_followup_with_history_preloads_candidates(self, mock_generate, mock_retrieve):
+        mock_retrieve.return_value = (
+            {self.opp1.id: self.opp1, self.opp2.id: self.opp2},
+            [
+                {"id": self.opp1.id, "title": self.opp1.title, "category": self.opp1.category},
+                {"id": self.opp2.id, "title": self.opp2.title, "category": self.opp2.category},
+            ],
+            "vector",
+        )
+        # Model answers directly without taking a retrieve action
+        mock_generate.return_value = json.dumps({
+            "reply": "The Full Stack Django React role is remote.",
+            "opportunity_ids": [self.opp2.id],
+        })
+
+        history = [
+            {"role": "user", "content": "Show me Python developer opportunities"},
+            {"role": "assistant", "content": "I found 2 Python opportunities for you."},
+        ]
+        message = "Which of those is remote?"
+
+        response = self.client.post(
+            self.chat_url,
+            data={"message": message, "history": history},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["reply"], "The Full Stack Django React role is remote.")
+        self.assertEqual(len(data["opportunities"]), 1)
+        self.assertEqual(data["opportunities"][0]["id"], self.opp2.id)
+
+        # Pre-load retrieval was called once with build_query_text(message, history)
+        expected_query = build_query_text(message, history)
+        mock_retrieve.assert_called_once_with(
+            query_text=expected_query,
+            student_profile_data=get_student_profile_context(self.student),
+        )
+        # Model was called only once directly
+        self.assertEqual(mock_generate.call_count, 1)
+
+    # ------------------------------------------------------------------
+    # 11. Empty history: No pre-load retrieval happens
+    # ------------------------------------------------------------------
+    @override_settings(ASSISTANT_USE_LANGGRAPH=True)
+    @patch("apps.assistant.views.retrieve_with_source")
+    @patch("apps.assistant.views.generate_text")
+    def test_empty_history_does_not_preload_retrieval(self, mock_generate, mock_retrieve):
+        mock_generate.return_value = json.dumps({
+            "reply": "Hello! How can I help you?",
+            "opportunity_ids": [],
+        })
+
+        response = self.client.post(
+            self.chat_url,
+            data={"message": "Hello", "history": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # First call is the model, no pre-load retrieval
+        self.assertEqual(mock_generate.call_count, 1)
+        mock_retrieve.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # 12. Non-AI exception in pre-load does not break the request (200 OK)
+    # ------------------------------------------------------------------
+    @override_settings(ASSISTANT_USE_LANGGRAPH=True)
+    @patch("apps.assistant.views.retrieve_with_source")
+    @patch("apps.assistant.views.generate_text")
+    def test_non_ai_exception_in_preload_proceeds_with_empty_candidates(self, mock_generate, mock_retrieve):
+        mock_retrieve.side_effect = RuntimeError("Database connection glitch during preload")
+        mock_generate.return_value = json.dumps({
+            "reply": "I can still assist you with platform questions.",
+            "opportunity_ids": [],
+        })
+
+        history = [
+            {"role": "user", "content": "Show opportunities"},
+            {"role": "assistant", "content": "Here are listings"},
+        ]
+
+        with self.assertLogs("apps.assistant.rag.langgraph_agent", level="WARNING") as cm:
+            response = self.client.post(
+                self.chat_url,
+                data={"message": "Any remote ones?", "history": history},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["reply"], "I can still assist you with platform questions.")
+        self.assertEqual(response.json()["opportunities"], [])
+        self.assertTrue(any("Assistant pre-load retrieval error" in log for log in cm.output))
+        # Ensure no user text in log
+        for log in cm.output:
+            self.assertNotIn("Any remote ones?", log)
+
+    # ------------------------------------------------------------------
+    # 13. AIBusyError in pre-load returns 503, no fallback
+    # ------------------------------------------------------------------
+    @override_settings(ASSISTANT_USE_LANGGRAPH=True)
+    @patch("apps.assistant.views.retrieve_with_source")
+    @patch("apps.assistant.views.generate_text")
+    def test_ai_busy_error_in_preload_returns_503_no_fallback(self, mock_generate, mock_retrieve):
+        mock_retrieve.side_effect = AIBusyError("Preload embedding quota exceeded")
+
+        history = [
+            {"role": "user", "content": "Show opportunities"},
+            {"role": "assistant", "content": "Here are listings"},
+        ]
+
+        response = self.client.post(
+            self.chat_url,
+            data={"message": "Which ones are remote?", "history": history},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json()["detail"],
+            "The assistant is busy right now. Please try again in a minute.",
+        )
+        # Model should NOT have been called (no fallback)
+        mock_generate.assert_not_called()
