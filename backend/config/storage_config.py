@@ -58,6 +58,14 @@ def build_storage_config(env=None, testing=False):
     else:
         custom_domain = None
 
+    raw_protocol = env.get("S3_URL_PROTOCOL")
+    if raw_protocol and str(raw_protocol).strip():
+        url_protocol = str(raw_protocol).strip()
+        if not url_protocol.endswith(":"):
+            url_protocol = f"{url_protocol}:"
+    else:
+        url_protocol = "http:" if endpoint_url else "https:"
+
     options = {
         "bucket_name": str(bucket_name).strip(),
         "access_key": str(access_key).strip(),
@@ -66,7 +74,7 @@ def build_storage_config(env=None, testing=False):
         "querystring_auth": False,
         "file_overwrite": False,
         "default_acl": None,
-        "url_protocol": "http:",
+        "url_protocol": url_protocol,
     }
 
     if endpoint_url:

@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -110,6 +111,52 @@ class S3StorageConfigTests(TestCase):
         }
         config = build_storage_config(env, testing=True)
         self.assertEqual(config["default"]["BACKEND"], "django.core.files.storage.FileSystemStorage")
+
+    def test_protocol_defaults_to_https_when_no_endpoint_url(self):
+        """When S3_ENDPOINT_URL is not set and S3_URL_PROTOCOL is unset, url_protocol defaults to https:."""
+        env = {
+            "S3_STORAGE_ENABLED": "true",
+            "S3_BUCKET_NAME": "my-bucket",
+            "S3_ACCESS_KEY": "key",
+            "S3_SECRET_KEY": "secret",
+        }
+        config = build_storage_config(env, testing=False)
+        self.assertEqual(config["default"]["OPTIONS"]["url_protocol"], "https:")
+
+    def test_protocol_defaults_to_http_when_endpoint_url_set(self):
+        """When S3_ENDPOINT_URL is set and S3_URL_PROTOCOL is unset, url_protocol defaults to http:."""
+        env = {
+            "S3_STORAGE_ENABLED": "true",
+            "S3_BUCKET_NAME": "my-bucket",
+            "S3_ACCESS_KEY": "key",
+            "S3_SECRET_KEY": "secret",
+            "S3_ENDPOINT_URL": "http://moto:5000",
+        }
+        config = build_storage_config(env, testing=False)
+        self.assertEqual(config["default"]["OPTIONS"]["url_protocol"], "http:")
+
+    def test_protocol_overridden_by_s3_url_protocol(self):
+        """When S3_URL_PROTOCOL is set, it overrides the default protocol regardless of endpoint_url."""
+        env_with_endpoint = {
+            "S3_STORAGE_ENABLED": "true",
+            "S3_BUCKET_NAME": "my-bucket",
+            "S3_ACCESS_KEY": "key",
+            "S3_SECRET_KEY": "secret",
+            "S3_ENDPOINT_URL": "http://moto:5000",
+            "S3_URL_PROTOCOL": "https:",
+        }
+        config1 = build_storage_config(env_with_endpoint, testing=False)
+        self.assertEqual(config1["default"]["OPTIONS"]["url_protocol"], "https:")
+
+        env_without_colon = {
+            "S3_STORAGE_ENABLED": "true",
+            "S3_BUCKET_NAME": "my-bucket",
+            "S3_ACCESS_KEY": "key",
+            "S3_SECRET_KEY": "secret",
+            "S3_URL_PROTOCOL": "http",
+        }
+        config2 = build_storage_config(env_without_colon, testing=False)
+        self.assertEqual(config2["default"]["OPTIONS"]["url_protocol"], "http:")
 
 
 class S3StorageUrlAndPrivacyTests(TestCase):
@@ -269,3 +316,106 @@ class S3SetupBucketCommandTests(TestCase):
 
         mock_s3.create_bucket.assert_not_called()
         mock_s3.put_bucket_policy.assert_called_once()
+
+    @patch("boto3.client")
+    def test_s3_setup_bucket_calls_put_public_access_block_before_put_bucket_policy_when_no_endpoint(self, mock_boto_client):
+        """When endpoint_url is empty/None (real AWS), put_public_access_block is called BEFORE put_bucket_policy."""
+        mock_s3 = MagicMock()
+        mock_boto_client.return_value = mock_s3
+        mock_s3.head_bucket.return_value = {}
+
+        real_aws_storages = {
+            "default": {
+                "BACKEND": "storages.backends.s3.S3Storage",
+                "OPTIONS": {
+                    "bucket_name": "nextgig-media",
+                    "access_key": "test-key",
+                    "secret_key": "test-secret",
+                    "region_name": "us-east-1",
+                },
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+
+        with override_settings(STORAGES=real_aws_storages):
+            call_command("s3_setup_bucket")
+
+        mock_s3.put_public_access_block.assert_called_once_with(
+            Bucket="nextgig-media",
+            PublicAccessBlockConfiguration={
+                "BlockPublicAcls": True,
+                "IgnorePublicAcls": True,
+                "BlockPublicPolicy": False,
+                "RestrictPublicBuckets": False,
+            },
+        )
+        mock_s3.put_bucket_policy.assert_called_once()
+
+        # Verify call order: put_public_access_block must be called BEFORE put_bucket_policy
+        calls = [c[0] for c in mock_s3.method_calls]
+        pab_index = calls.index("put_public_access_block")
+        policy_index = calls.index("put_bucket_policy")
+        self.assertLess(pab_index, policy_index)
+
+    @patch("boto3.client")
+    def test_s3_setup_bucket_skips_put_public_access_block_when_endpoint_url_set(self, mock_boto_client):
+        """When endpoint_url is set (Moto/MinIO), put_public_access_block is skipped."""
+        mock_s3 = MagicMock()
+        mock_boto_client.return_value = mock_s3
+        mock_s3.head_bucket.return_value = {}
+
+        moto_storages = {
+            "default": {
+                "BACKEND": "storages.backends.s3.S3Storage",
+                "OPTIONS": {
+                    "bucket_name": "nextgig-media",
+                    "access_key": "test-key",
+                    "secret_key": "test-secret",
+                    "endpoint_url": "http://moto:5000",
+                    "region_name": "us-east-1",
+                },
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+
+        with override_settings(STORAGES=moto_storages):
+            call_command("s3_setup_bucket")
+
+        mock_s3.put_public_access_block.assert_not_called()
+        mock_s3.put_bucket_policy.assert_called_once()
+
+    @patch("boto3.client")
+    def test_s3_setup_bucket_access_denied_raises_and_mentions_account_level_block(self, mock_boto_client):
+        """When put_bucket_policy fails with AccessDenied, CommandError is raised mentioning account-level Block Public Access."""
+        mock_s3 = MagicMock()
+        mock_boto_client.return_value = mock_s3
+        mock_s3.head_bucket.return_value = {}
+        mock_s3.put_bucket_policy.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},
+            "PutBucketPolicy",
+        )
+
+        storages_conf = {
+            "default": {
+                "BACKEND": "storages.backends.s3.S3Storage",
+                "OPTIONS": {
+                    "bucket_name": "nextgig-media",
+                    "access_key": "test-key",
+                    "secret_key": "test-secret",
+                    "region_name": "us-east-1",
+                },
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+
+        with override_settings(STORAGES=storages_conf):
+            with self.assertRaises(CommandError) as ctx:
+                call_command("s3_setup_bucket")
+
+        self.assertIn("Account-level Block Public Access", str(ctx.exception))

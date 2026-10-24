@@ -45,6 +45,25 @@ class Command(BaseCommand):
             else:
                 raise CommandError(f"Failed to access bucket: {error_code}") from exc
 
+        # When running against real AWS (endpoint_url is empty/None), update the bucket's
+        # Public Access Block so bucket policies can permit public read on profile pictures.
+        # When an endpoint URL is configured (Moto/MinIO), skip this call.
+        if not endpoint_url or not str(endpoint_url).strip():
+            s3_client.put_public_access_block(
+                Bucket=bucket_name,
+                PublicAccessBlockConfiguration={
+                    "BlockPublicAcls": True,
+                    "IgnorePublicAcls": True,
+                    "BlockPublicPolicy": False,
+                    "RestrictPublicBuckets": False,
+                },
+            )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Configured bucket public access block on '{bucket_name}' (BlockPublicPolicy=False, RestrictPublicBuckets=False)."
+                )
+            )
+
         policy = {
             "Version": "2012-10-17",
             "Statement": [
@@ -58,7 +77,20 @@ class Command(BaseCommand):
             ],
         }
 
-        s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy))
-        self.stdout.write(
-            self.style.SUCCESS("Successfully configured bucket policy: 'profile_pics/*' is public-read; 'resumes/*' is private.")
-        )
+        try:
+            s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy))
+            self.stdout.write(
+                self.style.SUCCESS("Successfully configured bucket policy: 'profile_pics/*' is public-read; 'resumes/*' is private.")
+            )
+        except ClientError as exc:
+            error_code = str(exc.response.get("Error", {}).get("Code", ""))
+            if error_code in ("AccessDenied", "403"):
+                err_msg = (
+                    f"Failed to apply bucket policy to '{bucket_name}': AccessDenied. "
+                    "Account-level Block Public Access may be enabled in your AWS account, "
+                    "which overrides bucket-level public access settings. "
+                    "Please check your account-level S3 Block Public Access settings in the AWS Console."
+                )
+                self.stderr.write(self.style.ERROR(err_msg))
+                raise CommandError(err_msg) from exc
+            raise CommandError(f"Failed to apply bucket policy: {error_code}") from exc
