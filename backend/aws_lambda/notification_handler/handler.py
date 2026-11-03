@@ -4,6 +4,7 @@ import os
 import urllib.request
 import urllib.error
 import boto3
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,16 @@ def lambda_handler(event, context=None):
                     raise RuntimeError("Direct HTTP delivery failed")
 
         except Exception as exc:
-            logger.warning("Failed to process SQS record %s: %s", message_id, type(exc).__name__)
+            if isinstance(exc, ClientError):
+                err = exc.response.get("Error", {})
+                logger.warning(
+                    "Failed to process SQS record %s: ClientError [%s] %s",
+                    message_id,
+                    err.get("Code", "Unknown"),
+                    err.get("Message", "Unknown"),
+                )
+            else:
+                logger.warning("Failed to process SQS record %s: %s", message_id, type(exc).__name__)
             if message_id:
                 batch_item_failures.append({"itemIdentifier": message_id})
 

@@ -3,6 +3,8 @@ import logging
 import urllib.request
 from unittest.mock import MagicMock, call, patch
 
+from botocore.exceptions import ClientError
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
@@ -443,6 +445,41 @@ class LambdaHandlerTests(TestCase):
                 {"itemIdentifier": "msg-2"},
             ]
         })
+
+    @patch.dict("os.environ", {
+        "SNS_TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:nextgig-topic",
+        "LAMBDA_DIRECT_DELIVERY": "false",
+    })
+    @patch("aws_lambda.notification_handler.handler.get_sns_client")
+    def test_handler_logs_client_error_code_and_message(self, mock_get_sns):
+        mock_sns = MagicMock()
+        mock_get_sns.return_value = mock_sns
+
+        error_response = {
+            "Error": {
+                "Code": "NotFound",
+                "Message": "Topic does not exist",
+            }
+        }
+        mock_sns.publish.side_effect = ClientError(error_response, "Publish")
+
+        event = {
+            "Records": [
+                {
+                    "messageId": "msg-err-01",
+                    "body": json.dumps({"secret_user_data": "private_value"}),
+                }
+            ]
+        }
+
+        with self.assertLogs("aws_lambda.notification_handler.handler", level="WARNING") as log_ctx:
+            res = lambda_handler(event, None)
+
+        self.assertEqual(res, {"batchItemFailures": [{"itemIdentifier": "msg-err-01"}]})
+        log_output = "\n".join(log_ctx.output)
+        self.assertIn("Failed to process SQS record msg-err-01: ClientError [NotFound] Topic does not exist", log_output)
+        self.assertNotIn("secret_user_data", log_output)
+        self.assertNotIn("private_value", log_output)
 
 
 class PollQueueCommandTests(TestCase):
