@@ -19,7 +19,7 @@ from apps.notifications.aws_events import (
 )
 from apps.notifications.models import Notification
 from apps.notifications.signals import deliver_notification_direct
-from aws_lambda.notification_handler.handler import lambda_handler
+from aws_lambda.notification_handler.handler import get_sns_client, lambda_handler
 from config.settings import RedactSecretFilter
 
 User = get_user_model()
@@ -480,6 +480,37 @@ class LambdaHandlerTests(TestCase):
         self.assertIn("Failed to process SQS record msg-err-01: ClientError [NotFound] Topic does not exist", log_output)
         self.assertNotIn("secret_user_data", log_output)
         self.assertNotIn("private_value", log_output)
+
+    @patch.dict("os.environ", {
+        "AWS_REGION": "ap-southeast-2",
+        "AWS_ACCESS_KEY_ID": "test-key-id",
+        "AWS_SECRET_ACCESS_KEY": "test-secret-key",
+    }, clear=True)
+    @patch("aws_lambda.notification_handler.handler.boto3.client")
+    def test_get_sns_client_without_endpoint_url_passes_no_explicit_credentials(self, mock_boto_client):
+        get_sns_client()
+        mock_boto_client.assert_called_once_with("sns", region_name="ap-southeast-2")
+        call_kwargs = mock_boto_client.call_args.kwargs
+        self.assertNotIn("endpoint_url", call_kwargs)
+        self.assertNotIn("aws_access_key_id", call_kwargs)
+        self.assertNotIn("aws_secret_access_key", call_kwargs)
+
+    @patch.dict("os.environ", {
+        "AWS_ENDPOINT_URL": "http://localhost:5000",
+        "AWS_REGION": "us-east-1",
+        "AWS_ACCESS_KEY_ID": "test",
+        "AWS_SECRET_ACCESS_KEY": "test",
+    }, clear=True)
+    @patch("aws_lambda.notification_handler.handler.boto3.client")
+    def test_get_sns_client_with_endpoint_url_passes_moto_settings(self, mock_boto_client):
+        get_sns_client()
+        mock_boto_client.assert_called_once_with(
+            "sns",
+            region_name="us-east-1",
+            endpoint_url="http://localhost:5000",
+            aws_access_key_id="test",
+            aws_secret_access_key="test",
+        )
 
 
 class PollQueueCommandTests(TestCase):

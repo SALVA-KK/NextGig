@@ -10,17 +10,23 @@ logger = logging.getLogger(__name__)
 
 
 def get_sns_client():
-    kwargs = {
-        "region_name": os.getenv("AWS_REGION", "us-east-1"),
-    }
     endpoint_url = os.getenv("AWS_ENDPOINT_URL")
     if endpoint_url and endpoint_url.strip():
-        kwargs["endpoint_url"] = endpoint_url
-    access_key = os.getenv("AWS_ACCESS_KEY_ID")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-    if access_key and secret_key:
-        kwargs["aws_access_key_id"] = access_key
-        kwargs["aws_secret_access_key"] = secret_key
+        kwargs = {
+            "region_name": os.getenv("AWS_REGION", "us-east-1"),
+            "endpoint_url": endpoint_url.strip(),
+        }
+        access_key = os.getenv("AWS_ACCESS_KEY_ID")
+        secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+        if access_key and secret_key:
+            kwargs["aws_access_key_id"] = access_key
+            kwargs["aws_secret_access_key"] = secret_key
+        return boto3.client("sns", **kwargs)
+
+    kwargs = {}
+    region_name = os.getenv("AWS_REGION")
+    if region_name and region_name.strip():
+        kwargs["region_name"] = region_name.strip()
     return boto3.client("sns", **kwargs)
 
 
